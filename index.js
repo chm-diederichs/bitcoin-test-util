@@ -1,5 +1,6 @@
 const Client = require('bitcoin-core')
 const assert = require('nanoassert')
+const pMap = require('p-map')
 
 const rpcInfo = {
   port: 18447,
@@ -9,21 +10,13 @@ const rpcInfo = {
   datadir: './.regtest',
 }
 
-// const rpcInfoNode2 = {
-//   port: 18447,
-//   username: 'lnd',
-//   password: 'password',
-//   network: 'regtest',
-//   datadir: './.regtest',
-//   wallet: '2'
-// }
-
 module.exports = generateAndCollect
 
 const node = new Client(rpcInfo)
-// const node2 = new Client(rpcInfoNode2)
 
-async function generateAndCollect (amount, blocks, splitBy = [1], addressType = 'legacy') {
+generateAndCollect(100, 100, 50, process.argv[2])
+
+async function generateAndCollect (amount, blocks, splitBy = [1], addressType = 'legacy', fees = 0.005) {  
   // equal split may be specified by given desired number of UTXOs as an int
   splitBy = typeof splitBy === 'object'
     ? splitBy
@@ -47,24 +40,23 @@ async function generateAndCollect (amount, blocks, splitBy = [1], addressType = 
   const coinbaseTxns = await coinbase()
   const coinbaseAmt = coinbaseTxns.reduce((acc, val) => acc + val)
 
+  // generate rpc inputs to create transaction
+  const selectedInputs = selectTxInputs(coinbaseTxns, amount)
+  // const txOutputs = buildTxOutputs(transferAmounts, amount, transferAddresses)
+
   // generate
   const transferAmounts = splitBy.map(portion => amount * portion)
 
-  const transferAddresses = []
-
-  for (let split of splitBy) {
-    const address = await node.getNewAddress('', addressType)
-    transferAddresses.push(address)
-  }
-
-  // generate rpc inputs to create transaction
-  const selectedInputs = selectTxInputs(coinbaseTxns, amount)
-  const txOutputs = buildTxOutputs(transferAmounts, amount, transferAddresses)
+  const txOutputs = await pMap(
+    transferAmounts,
+    createOutput(addressType, selectTxInputs.total),
+    { concurrency: 5 }
+  )
 
   // format change output
   const changeAddress = await node.getNewAddress('2', addressType)
   const changeOutput = {}
-  changeOutput[changeAddress] = castToValidBTCFloat(selectTxInputs.total - amount)
+  changeOutput[changeAddress] = castToValidBTCFloat(selectTxInputs.total - amount - fees)
 
   // add change output
   txOutputs.push(changeOutput)
@@ -78,6 +70,21 @@ async function generateAndCollect (amount, blocks, splitBy = [1], addressType = 
   await node.generateToAddress(6, genAddress)
   
   node.listUnspent().then(unspent => console.log(unspent.filter(utxo => utxo.txid == txid)))
+}
+
+function createOutput (addressType) {
+  addressFormat = addressType === 'random'
+    ? addressTypes[Math.floor(Math.random() * 3)]
+    : addressType
+
+  return async (amount) => {
+    const address = await node.getNewAddress('', addressFormat)
+
+    const output = {}
+
+    output[address] = castToValidBTCFloat(amount)
+    return output
+  }
 }
 
 function selectTxInputs (inputPool, amount) {
@@ -127,11 +134,10 @@ async function coinbase (coinbaseTxns = []) {
 
   const newCoinbaseTxns = []
 
-  for (let utxo of newUnspent) {
+  await pMap(newUnspent, async utxo => {
     const txInfo = await node.getTransaction(utxo.txid)
-
-    if (txInfo.generated) newCoinbaseTxns.push(utxo)
-  }
+    if (txInfo.generated) newCoinbaseTxns.push(utxo) 
+  }, { concurrency: 5 })
 
   return coinbaseTxns.concat(newCoinbaseTxns)
 }
@@ -141,9 +147,6 @@ async function coinbase (coinbaseTxns = []) {
 function castToValidBTCFloat (number) {
   return parseFloat(number.toFixed(8))
 }
-
-generateAndCollect(100, 100, 100, process.argv[2])
-
 
 function toSats (btcStr) {
   var [integer, fraction] = btcStr.split('.')

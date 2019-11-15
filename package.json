@@ -9,7 +9,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "better-queue": "^3.8.10",
     "bitcoin-core": "^3.0.0",
-    "nanoassert": "^2.0.0"
+    "fastq": "^1.6.0",
+    "nanoassert": "^2.0.0",
+    "p-map": "^3.0.0"
   }
 }
