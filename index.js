@@ -10,11 +10,17 @@ const rpcInfo = {
   datadir: './.regtest',
 }
 
+const addressTypes = [
+  'bech32',
+  'legacy',
+  'p2sh-segwit'
+]
+
 module.exports = generateAndCollect
 
 const node = new Client(rpcInfo)
 
-generateAndCollect(100, 100, 50, process.argv[2])
+generateAndCollect(10, 10, 5)
 
 async function generateAndCollect (amount, blocks, splitBy = [1], addressType = 'legacy', fees = 0.005) {  
   // equal split may be specified by given desired number of UTXOs as an int
@@ -38,38 +44,70 @@ async function generateAndCollect (amount, blocks, splitBy = [1], addressType = 
 
   // collect coinbase transactions
   const coinbaseTxns = await coinbase()
-  const coinbaseAmt = coinbaseTxns.reduce((acc, val) => acc + val)
-
+  
   // generate rpc inputs to create transaction
   const selectedInputs = selectTxInputs(coinbaseTxns, amount)
   // const txOutputs = buildTxOutputs(transferAmounts, amount, transferAddresses)
 
-  // generate
+  // generate transaction outputs
   const transferAmounts = splitBy.map(portion => amount * portion)
 
   const txOutputs = await pMap(
     transferAmounts,
-    createOutput(addressType, selectTxInputs.total),
+    createOutput('random'),
     { concurrency: 5 }
   )
 
-  // format change output
-  const changeAddress = await node.getNewAddress('2', addressType)
-  const changeOutput = {}
-  changeOutput[changeAddress] = castToValidBTCFloat(selectTxInputs.total - amount - fees)
+  const changeAddress = await node.getNewAddress('change', addressType)
+  const rpcInput = rpcFormat(selectedInputs, txOutputs, changeAddress)
 
-  // add change output
-  txOutputs.push(changeOutput)
-
-  // create, sign and send transaction
-  const rawTx = await node.createRawTransaction(selectedInputs, txOutputs)
+  // create, sign and send tx
+  const rawTx = await node.createRawTransaction(...rpcInput, null, true)
   const signedTx = await node.signRawTransactionWithWallet(rawTx)
   const txid = await node.sendRawTransaction(signedTx.hex)
-  
+
+  // create rbf tx using inputs from first tx
+  const [rbfInputs, rbfOutputs] = [[], []]
+
+  rbfInputs.push(selectedInputs.slice().sort((a, b) => a.amount - b.amount).pop())
+  rbfOutputs.push(txOutputs.slice().sort((a, b) => Object.values(a)[0] - Object.values(b)[0])[0])
+
+  // make rpc input for rbf tx
+  const rbfInput = rpcFormat(rbfInputs, rbfOutputs, changeAddress, 0.0005)
+
+  // create, sign and send rbf tx
+  const rbfRawTx = await node.createRawTransaction(...rbfInput, null, true)
+  const rbfSignedTx = await node.signRawTransactionWithWallet(rbfRawTx)
+  const rbfTxid = await node.sendRawTransaction(rbfSignedTx.hex)
+
   // confirm transaction
   await node.generateToAddress(6, genAddress)
-  
+
+  // list utxos from original tx (should be empty array) and rbf tx
   node.listUnspent().then(unspent => console.log(unspent.filter(utxo => utxo.txid == txid)))
+  node.listUnspent().then(unspent => console.log(unspent.filter(utxo => utxo.txid == rbfTxid)))
+}
+
+function rpcFormat (inputs, outputs, changeAddress, fees = 0.0004) {
+  const changeOutput = {}
+ 
+  const inputTotal = inputs.reduce((acc, input) => acc +  input.amount, 0)
+  const outputTotal = outputs.reduce((acc, output) => acc + Object.values(output)[0], 0)
+  console.log(outputTotal, inputs, inputTotal, fees)
+
+  changeOutput[changeAddress] = castToValidBTCFloat(inputTotal - outputTotal - fees)
+  console.log(changeOutput, 'changeOutput')
+  rpcOutputs = outputs.concat([changeOutput])
+
+  const rpcInputs = inputs.map(input => { return {
+    txid: input.txid,
+    vout: input.vout
+  }})
+
+  return [
+    rpcInputs,
+    rpcOutputs
+  ]
 }
 
 function createOutput (addressType) {
@@ -95,10 +133,7 @@ function selectTxInputs (inputPool, amount) {
   while (selectedAmount < amount) {
     const toTransfer = inputPool.pop()
     
-    selectedInputs.push({
-      txid: toTransfer.txid,
-      vout: toTransfer.vout
-    })
+    selectedInputs.push(toTransfer)
 
     selectedAmount += toTransfer.amount
   }
@@ -139,26 +174,12 @@ async function coinbase (coinbaseTxns = []) {
     if (txInfo.generated) newCoinbaseTxns.push(utxo) 
   }, { concurrency: 5 })
 
-  return coinbaseTxns.concat(newCoinbaseTxns)
+  const returnArray = coinbaseTxns.concat(newCoinbaseTxns)
+  coinbase.amount = returnArray.reduce((acc, val) => acc + val)
+  return returnArray
 }
-
 
 // bitcoind transfers can only parse up to 8 decimal places
 function castToValidBTCFloat (number) {
   return parseFloat(number.toFixed(8))
-}
-
-function toSats (btcStr) {
-  var [integer, fraction] = btcStr.split('.')
-
-  return BigInt(integer + fraction.padEnd(8,  '0'))
-}
-
-function toSats (btcStr) {
-   var decimalPlace = btcStr.indexOf('.')
-   if (decimalPlace === -1) {
-      decimalPlace = btcStr.length - 1
-    }
- 
-  return BigInt(btcStr.padEnd(decimalPlace + 9, '0').replace('.', ''))
 }
