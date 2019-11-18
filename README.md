@@ -4,14 +4,18 @@
 This image contains the main binaries from the Bitcoin Core project - `bitcoind`, `bitcoin-cli` and `bitcoin-tx`. It behaves like a binary, so you can pass any arguments to the image and they will be forwarded to the `bitcoind` binary:
 
 ```sh
-❯ docker run --rm -it ruimarinho/bitcoin-core \
+$ docker run --rm -it ruimarinho/bitcoin-core \
   -printtoconsole \
   -regtest=1 \
   -rpcallowip=172.17.0.0/16 \
-  -rpcauth='foo:7d9ba5ae63c3d4dc30583ff4fe65a67e$9e3634e81c11659e3de036d0bf88f89cd169c1039e6e09607562d54765c649cc'
+  -rpcauth=test:02e315e2ed5a14107317c9c216caf844$767e20d1f81ff61fd5499a94800ac4f83389c09107ce5f68006325223f5dd85b
+  # Defaults are username: test, password: password
 ```
+To set up custom authorisation, run rpcauth.py with `<user>` and `<password>` as arguments and replace rpcauth with the resulting string:
 
-_Note: [learn more](#using-rpcauth-for-remote-authentication) about how `-rpcauth` works for remote authentication._
+```sh
+$ ./rpcauth.py <username> <password>
+```
 
 By default, `bitcoind` will run as user `bitcoin` for security reasons and with its default data dir (`~/.bitcoin`). If you'd like to customize where `bitcoin-core` stores its data, you must use the `BITCOIN_DATA` environment variable. The directory will be automatically created with the correct permissions for the `bitcoin` user and `bitcoin-core` automatically configured to use it.
 
