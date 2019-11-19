@@ -63,6 +63,52 @@ module.exports = class TestNode {
     return txid
   }
 
+  async simpleSend (amount, addresses, amounts) {
+    const balance = await this.getBalance()
+    assert(amount < balance, 'insufficient funds.')
+
+    // amounts = amounts || addresses.map(address => castToValidBTCFloat(amount / addresses.length))
+    // assert(amounts.reduce((acc, val) => acc + val, 0) <= amount, 'Amounts to transfer exceed amount available'
+
+    const inputs = selectTxInputs(this.unspent, amount)
+
+    const outputs = await pMap(
+      addresses,
+      address => {
+        const output = {}
+        output[address] = castToValidBTCFloat(amount / addresses.length)
+        return output
+      },
+      { concurrency: 5 }
+    )
+
+    const changeAddress = await this.newAddress()
+    const rpcInput = rpcFormat(inputs, outputs, changeAddress)
+
+    return this.send(...rpcInput)
+  }
+
+  async regularSend (amount, addresses, amounts) {
+    assert(this.regularTxns.length !== 0, 'simple send uses regular txns, run node.collect() first')
+
+    // amounts = amounts || addresses.map(address => castToValidBTCFloat(amount / addresses.length))
+    // assert(amounts.reduce((acc, val) => acc + val, 0) <= amount, 'Amounts to transfer exceed amount available'
+
+    const inputs = selectTxInputs(this.regularTxns, amount)
+
+    const outputs = await pMap(
+      addresses,
+      address => {
+        const output = {}
+        output[address] = castToValidBTCFloat(amount / addresses.length)
+        return output
+      },
+      { concurrency: 5 }
+    )
+
+    return this.send(inputs, outputs)
+  }
+
   async confirm () {
     await this.generate(6)
   }
@@ -129,7 +175,7 @@ module.exports = class TestNode {
       { concurrency: 5 }
     )
 
-    const changeAddress = this.newAddress(addressType)
+    const changeAddress = await this.newAddress(addressType)
     const rpcInput = rpcFormat(selectedInputs, txOutputs, changeAddress)
 
     // create, sign and send tx

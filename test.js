@@ -4,6 +4,7 @@ const test = require('tape')
 const ptape = require('tape-promise').default
 const assert = require('nanoassert')
 const ptest = ptape(test)
+const get = require('simple-get')
 
 const rpcInfo = {
   port: 18443,
@@ -36,6 +37,58 @@ ptest('create testing node', async t => {
   t.end()
 })
 
+ptest.skip('', async t => {
+  const node = new Test(client)
+  await node.init()
+  await node.generate(106)
+
+
+
+  const opts = {
+    url: 'http://localhost:18443',
+    body: 'invalidateblock',
+    params: ['aaaaaa']
+  }
+
+  get.post(opts, function (err, res) {
+    if (err) throw err
+    res.pipe(process.stdout)
+  })
+
+  await delay(5000)
+  await node.reorg(33)
+})
+
+ptest('new address', async t => {
+  const node = new Test(client)
+  await node.init()
+
+  const legacyAddress = await node.newAddress('legacy')
+  const p2shAddress = await node.newAddress('p2sh-segwit')
+  const bech32Address = await node.newAddress('bech32')
+  const randomAddress = await node.newAddress()
+
+  t.assert(typeof legacyAddress === 'string', 'legacyAddress should be a string')
+  t.assert(typeof p2shAddress === 'string', 'p2shAddress should be a string')
+  t.assert(typeof bech32Address === 'string', 'bech32Address should be a string')
+  t.assert(typeof randomAddress === 'string', 'randomAddress should be a string')
+
+  t.end()
+})
+
+ptest('get balance', async t => {
+  const node = new Test(client)
+  await node.init()
+
+  t.assert(typeof node.genAddress === 'string', 'genAddress should be loaded')
+  t.equal(node.coinbaseAmt, 0, 'coinbaseAmt should be 0')
+  t.deepEqual(node.unspent, [], 'unspent should be empty array')
+  t.deepEqual(node.coinbase, [], 'coinbase should be empty array')
+  t.deepEqual(node.regularBase, [], 'genAddress should be empty array')
+
+  t.end()
+})
+
 ptest('initiate', async t => {
   const node = new Test(client)
   await node.init()
@@ -54,6 +107,7 @@ ptest('generate blocks and update functions', async t => {
   await node.init()
 
   const currentBlockHeight = await client.getBlockCount()
+
   t.assert(currentBlockHeight === 0, 'block height should be 0')
 
   await node.generate(106)
@@ -61,6 +115,10 @@ ptest('generate blocks and update functions', async t => {
   const newBlockHeight = await client.getBlockCount()
 
   t.equal(newBlockHeight - currentBlockHeight, 106, 'blockheight should be 100')
+
+  const balance = await node.getBalance()
+  t.assert(typeof balance === 'number', 'balance should be a number')
+  t.assert(balance > 0, 'balance should be greater than 0')
 
   await node.init()
 
@@ -148,6 +206,12 @@ ptest('collect coinbase transactions into a single transaction', async t => {
   const node = new Test(client)
   await node.init()
 
+  const address = await node.newAddress()
+
+  const tx = await node.simpleSend(1, [address])
+  const mempool = await node.client.getRawMempool()
+
+  t.assert(mempool.includes(tx), 'mempool should not contain txid')
   t.end()
 })
 
@@ -164,3 +228,26 @@ ptest('replace a mempool transaction using replace-by-fee', async t => {
 
   t.end()
 })
+
+ptest('reset', async t => {
+  const node = new Test(client)
+  await node.init()
+
+  await node.reset()
+
+  const blockChainInfo = await node.client.getBlockchainInformation()
+  const balance = await node.getBalance()
+  
+  t.equal(blockChainInfo.blocks, 0, 'block count should be 0 after reset')
+  t.equal(balance, 0, 'balance should be 0 after reset')
+  t.end()
+})
+
+function delay (time) {
+  assert(typeof time === 'number')
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      resolve()
+    }, time)
+  })
+}
