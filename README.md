@@ -1,5 +1,5 @@
 # bitcoind-coinbase-test
-##Usage
+## Usage
 A testing node is instantiated by passsing a bitcoin-core client to the contructor
 ```js
 const Client = require('bitcoin-core')
@@ -14,44 +14,44 @@ const client = new Client(rpcInfo)
 const node = new Node(client)
 ```
 
-###API
-####`node.init(addressType)`
+### API
+#### `node.init(addressType)`
 Async method to correctly load initial state.
 The address to which mined coins are sent can be of specified type from `['legacy', 'p2sh-segwit', 'bech32']`, default is to randomly choose. 
 
-####`node.updateUnspent()`
+#### `node.updateUnspent()`
 Fetches list of UTXO from the bitcoin client
 
-####`node.updateCoinbase()`
+#### `node.updateCoinbase()`
 Parses unspent array for coinbase transactions
 
-####`node.generate(blocks)`
+#### `node.generate(blocks)`
 Generate `blocks` new blocks to genAddress
 
-####`node.send(inputs, outputs, replaceable, locktime)`
+#### `node.send(inputs, outputs, replaceable, locktime)`
 Submit a transaction to the mempool by passing as arguments the inputs and outputs for the transaction.
 `inputs` should be an array of inputs of the form: `{ txid: <txid>, vout: <vout> }`.
 `outputs` should be an array of the form `{ receivingAddress: amount}`, where receiving address is a valid bitcoin address as a string.
 `replaceable` flag is set to true by default allowing for replace-by-fee transactions.
 `locktime` may be specified, but is set to null by default.
 
-####`node.confirm()`
+#### `node.confirm()`
 Confirms any mempool transactions by calling `node.generate(6)`
 
-####`node.sendAndConfirm(inputs, outputs, locktime)`
+#### `node.sendAndConfirm(inputs, outputs, locktime)`
 Combines `node.send()` and `node.confirm()` in one step, transactions are unreplaceable and `locktime` is set to null by default.
 
-####`node.collect(amount, splitRatios, addressType, fees)`
+#### `node.collect(amount, splitRatios, addressType, fees)`
 Combines coinbase transactions into standard UTXOs.
 `amount` specifies the total value of coinbase transactions to be collected, if unspecified `this.coinbaseAmt` is used, attempting to collect *all* coinbase funds.
 `splitRatios` indicates how many separate addresses the funds should be sent to and the relative portion of the funds to be sent to each address. By default, all funds shall be sent to a single address. If and integer `n` is passed as `splitRatios`, the funds shall be split equally into `n` different addresses. An additional output shall send leftover funds to a `changeAddress`.
 `addressType` of the receiving addresses may be defined for all outputs when the function is called, otherwise a random type is chosen for each output.
 `fees` may be specified, but are otherwise arbitrarily set to `0.0005`.
 
-####`node.reorg(depth, height)`
+#### `node.reorg(depth, height)`
 Implement a reorganisation by invalidating the block `depth` below the current block height. The node shall then mine `height` new blocks from the new block height. Note that for a single node, this is equivalent to discarding any transaction data between blocks `currentBlockHeight - depth` and `currentBlockHeight`.
 
-####`node.replaceByFee(inputs, outputs)`
+#### `node.replaceByFee(inputs, outputs)`
 Constructs a transaction that shall replace a mempool transaction by paying higher fees. Inputs and outputs should be passed as arrays with th esame format as `send` methods and MUST contain at least one input *and/or* output with an existing mempool transaction. The feerate shall be calculated and set to ensure the previous transaction is replaced.
 
 ## Bitcoind on Docker
