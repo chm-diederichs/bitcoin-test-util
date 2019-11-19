@@ -9,39 +9,40 @@ const addressTypes = [
 
 module.exports = class TestNode {
   constructor (node) {
-    this.node = node
+    this.client = node
 
-    this. genAddress = null
+    this.genAddress = null
 
-    this.coinbase = []
+    this.coinbase = null
     this.coinbaseAmt = null
+    this.genAddress = null
 
-    this.unspent = []
-    this.regularBase = []
+    this.unspent = null
+    this.regularTxns = null
   }
 
   async init (addressType = 'legacy') {
     await this.updateUnspent()
     await this.updateCoinbase()
 
-    this.genAddress = await this.node.getNewAddress('generate', addressType)
+    this.genAddress = await this.client.getNewAddress('generate', addressType)
     this.regularBase = this.unspent.filter(utxo => !this.coinbase.includes(utxo))
   }
 
   async updateUnspent () {
-    this.unspent = await this.node.listUnspent()
+    this.unspent = await this.client.listUnspent()
   }
 
   async generate (blocks) {
-    await this.node.generateToAddress(blocks, this.genAddress)
+    await this.client.generateToAddress(blocks, this.genAddress)
   }
 
   async send (inputs, outputs, replaceable = true, locktime = null) {
     assert(typeof replaceable === 'boolean', 'replaceable flag must be a boolean')
 
-    const rawTx = await this.node.createRawTransaction(inputs, outputs, locktime, replaceable)
-    const signedTx = await this.node.signRawTransactionWithWallet(rawTx)
-    const txid = await this.node.sendRawTransaction(signedTx.hex)
+    const rawTx = await this.client.createRawTransaction(inputs, outputs, locktime, replaceable)
+    const signedTx = await this.client.signRawTransactionWithWallet(rawTx)
+    const txid = await this.client.sendRawTransaction(signedTx.hex)
 
     return txid
   }
@@ -50,8 +51,10 @@ module.exports = class TestNode {
     await this.generate(6)
   }
 
+  // TOFO: build and send tx
+
   async sendAndConfirm (inputs, outputs, locktime = null) {
-    const txid = await this.send(inputs, outputs, locktime, false)
+    const txid = await this.send(inputs, outputs, false, locktime)
 
     await this.generate(6)
     return txid
@@ -66,10 +69,12 @@ module.exports = class TestNode {
 
     // filter already stored coinbase txns
     const newCoinbaseTxns = []
-    const newUnspent = this.unspent.filter(utxo => !this.coinbase.includes(utxo))
+    const newUnspent = this.unspent.length === 0
+      ? []
+      : this.unspent.filter(utxo => !currentCoinbase.includes(utxo))
 
     await pMap(newUnspent, async utxo => {
-      const txInfo = await this.node.getTransaction(utxo.txid)
+      const txInfo = await this.client.getTransaction(utxo.txid)
  
       // utxo.generated: true iff utxo is coinbase
       if (txInfo.generated) newCoinbaseTxns.push(utxo)
@@ -77,7 +82,7 @@ module.exports = class TestNode {
 
     // update coinbase array and total coinbase amount
     this.coinbase = currentCoinbase.concat(newCoinbaseTxns)
-    this.coinbaseAmt = this.coinbase.reduce((acc, coinbase) => acc + coinbase.amount)
+    this.coinbaseAmt = this.coinbase.reduce((acc, coinbase) => acc + coinbase.amount, 0)
 
     return this.coinbase
   }
@@ -108,7 +113,7 @@ module.exports = class TestNode {
       { concurrency: 5 }
     )
 
-    const changeAddress = await this.node.getNewAddress('change', addressType)
+    const changeAddress = await this.client.getNewAddress('change', addressType)
     const rpcInput = rpcFormat(selectedInputs, txOutputs, changeAddress)
 
     // create, sign and send tx
@@ -124,7 +129,7 @@ module.exports = class TestNode {
         : addressType
 
       return async (amount) => {
-        const address = await node.getNewAddress('', addressFormat)
+        const address = await this.client.getNewAddress('', addressFormat)
 
         const output = {}
 
@@ -138,20 +143,20 @@ module.exports = class TestNode {
     assert(depth, 'reorg depth must be specified')
     height = height || depth + 1
 
-    const currentHeight = await node.getblockcount()
-    const targetHash = await node.getblockhash(currentHeight - depth)
+    const currentHeight = await this.client.getblockcount()
+    const targetHash = await this.client.getblockhash(currentHeight - depth)
     
-    await node.invalidateBlock(targetHash)
-    await node.generateToAddress(height)
+    await this.client.invalidateBlock(targetHash)
+    await this.client.generateToAddress(height)
   }
 
   async replaceByFee (inputs = [], outputs = [], flag = 'input') {
-    const mempool = this.node.getRawMempool()
+    const mempool = this.client.getRawMempool()
     const replaceTxns = []
 
     // gather mempool transactions being replaced
     await pMap(mempool, async txid => {
-      const tx = await this.node.getRawTransaction(txid, 1)
+      const tx = await this.client.getRawTransaction(txid, 1)
       const repeatedInputs = tx.vin.filter(filterRepeats(inputs))
       const repeatedOutputs = tx.vout.filter(filterRepeats(outputs))
       if (repeatedInputs.length > 0 || repeatedOutputs.length > 0) {
@@ -184,8 +189,8 @@ module.exports = class TestNode {
     // determine minimum fees required to replace tx
     async function calculateRbfFee () {
       const weightTestInput = rpcFormat(rbfInputs, rbfOutputs, changeAddress, 0.0005)
-      const weightTestRaw = await this.node.createRawTransaction(...weightTestInput)
-      const weightTestTx = await this.node.decodeRawTransaction(weightTestRaw)
+      const weightTestRaw = await this.client.createRawTransaction(...weightTestInput)
+      const weightTestTx = await this.client.decodeRawTransaction(weightTestRaw)
       
       const weight = weightTestTx.weight
       const minimumFeeByRate = weight * replaceFeeRate
@@ -257,25 +262,6 @@ function selectTxInputs (inputPool, amount) {
 
   selectTxInputs.total = selectedAmount
   return selectedInputs
-}
-
-// update coinbaseTxns and return available coinbase funds
-async function coinbase (coinbaseTxns = []) {
-  const unspent = await node.listUnspent()
-  console.log(unspent)
-
-  const newUnspent = unspent.filter(utxo => !coinbaseTxns.includes(utxo))
-
-  const newCoinbaseTxns = []
-
-  await pMap(newUnspent, async utxo => {
-    const txInfo = await node.getTransaction(utxo.txid)
-    if (txInfo.generated) newCoinbaseTxns.push(utxo)
-  }, { concurrency: 5 })
-
-  const returnArray = coinbaseTxns.concat(newCoinbaseTxns)
-  coinbase.amount = returnArray.reduce((acc, val) => acc + val)
-  return returnArray
 }
 
 // bitcoind transfers can only parse up to 8 decimal places
