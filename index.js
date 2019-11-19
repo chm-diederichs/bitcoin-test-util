@@ -30,9 +30,15 @@ module.exports = class TestNode {
     this.regularBase = this.unspent.filter(utxo => !this.coinbase.includes(utxo))
   }
 
-  async reset () {
-    const blockCount = await (this.client.getBlockchainInfo()).blocks
+  async reset (reMine) {
+    const blockCount = await this.client.getBlockchainInformation()
+
     await this.reorg(blockCount.blocks - 1, 0)
+    
+    if (reMine) {
+      const newAddress = await this.newAddress()
+      await this.generate(reMine, newAddress)
+    }
   }
 
   async getBalance () {
@@ -139,9 +145,9 @@ module.exports = class TestNode {
     const changeAddress = await this.newAddress()
     const rpcInput = rpcFormat(inputs, outputs, changeAddress)
 
-    const txid = this.send(...rpcInput)
+    const txid = await this.send(...rpcInput)
     if (confirm) await this.confirm()
-      
+
     return txid
   }
 
@@ -260,7 +266,7 @@ module.exports = class TestNode {
     assert(depth, 'reorg depth must be specified')
     if (!height && height !== 0) height = depth + 1
 
-    const currentHeight = (await this.client.getBlockchainInfo()).blocks
+    const currentHeight = (await this.client.getBlockchainInformation()).blocks
     const targetHash = await this.client.getBlockHash(currentHeight - depth)
     
     await this.client.command('invalidateblock', targetHash)

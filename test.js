@@ -46,7 +46,7 @@ ptest('create testing node', async t => {
   t.end()
 })
 
-ptest.skip('reorg testing', async t => {
+ptest('reorg testing', async t => {
   const node = new Test(client)
 
   await node.init()
@@ -67,7 +67,7 @@ ptest.skip('reorg testing', async t => {
   t.end()
 })
 
-ptest.skip('reset testing', async t => {
+ptest('reset testing', async t => {
   const node = new Test(client)
 
   await node.init()
@@ -75,28 +75,41 @@ ptest.skip('reset testing', async t => {
   
   const height = (await node.client.getBlockchainInformation()).blocks
   const balance = await node.getBalance()
-  console.log(balance)
 
   t.equal(height, 150, '200 blocks should have been mined')
   t.assert(balance > 0, 'balance should be greater than 0')
 
   await node.reset()
-  const newHeight = (await node.client.getBlockchainInformation()).blocks
+  
+  const resetHeight = (await node.client.getBlockchainInformation()).blocks
+  const resetBalance = await node.getBalance()
 
-  t.equal(newHeight, 0, 'After reset, block height should be 0')
+  t.equal(resetHeight, 0, 'After reset, block height should be 0')
+  t.equal(resetBalance, 0, 'balance should 0 after reorg')
 
   const address = await node.newAddress()
-  await node.generate(201, address)
-  await node.confirm()
+  await node.generate(106, address)
 
+  const newHeight = (await node.client.getBlockchainInformation()).blocks
   const newBalance = await node.getBalance()
-  t.equal(balance, 5050, 'balance should 0 after reorg')
+
+  t.equal(newHeight, 106, 'After reset, block height should be 200')
+  t.equal(newBalance, 300, 'balance should 5000 after regeneration')
+
+  await node.reset(106)
+
+  const reMineHeight = (await node.client.getBlockchainInformation()).blocks
+  const reMineBalance = await node.getBalance()
+
+  t.equal(reMineHeight, 106, 'After reset, block height should be 200')
+  t.equal(reMineBalance, 300, 'balance should 5000 after regeneration')
   t.end()
 })
 
 ptest('new address', async t => {
   const node = new Test(client)
   await node.init()
+  await node.reset(200)
 
   const legacyAddress = await node.newAddress('legacy')
   const p2shAddress = await node.newAddress('p2sh-segwit')
