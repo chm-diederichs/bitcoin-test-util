@@ -1,12 +1,6 @@
 const assert = require('nanoassert')
 const pMap = require('p-map')
 
-const addressTypes = [
-  'bech32',
-  'legacy',
-  'p2sh-segwit'
-]
-
 module.exports = class TestNode {
   constructor (node) {
     this.client = node
@@ -21,7 +15,7 @@ module.exports = class TestNode {
     this.regularTxns = null
   }
 
-  async init (addressType = 'legacy') {
+  async init (addressType = randomType()) {
     await this.updateUnspent()
     await this.updateCoinbase()
 
@@ -87,7 +81,7 @@ module.exports = class TestNode {
     return this.coinbase
   }
 
-  async collect (amount, splitBy = [1], addressType = 'legacy', fees = 0.005) {
+  async collect (amount, splitBy = [1], addressType = randomType(), fees = 0.0005) {
     // equal split may be specified by given desired number of UTXOs as an int
     splitBy = typeof splitBy === 'object'
       ? splitBy
@@ -109,7 +103,7 @@ module.exports = class TestNode {
 
     const txOutputs = await pMap(
       transferAmounts,
-      createOutput('random'),
+      createOutput(),
       { concurrency: 5 }
     )
 
@@ -124,9 +118,7 @@ module.exports = class TestNode {
     // map transfer amount to format for rpc input
     function createOutput (addressType) {
       // randomise address type if desired
-      const addressFormat = addressType === 'random'
-        ? addressTypes[Math.floor(Math.random() * 3)]
-        : addressType
+      const addressFormat = addressType || randomType()
 
       return async (amount) => {
         const address = await this.client.getNewAddress('', addressFormat)
@@ -150,7 +142,7 @@ module.exports = class TestNode {
     await this.client.generateToAddress(height)
   }
 
-  async replaceByFee (inputs = [], outputs = [], flag = 'input') {
+  async replaceByFee (inputs = [], outputs = []) {
     const mempool = this.client.getRawMempool()
     const replaceTxns = []
 
@@ -165,6 +157,8 @@ module.exports = class TestNode {
       }
     }, { concurrency:  5 })
 
+    assert(replaceTxns.length, 'No transactions are being replaced, use send methods instead')
+    
     const replacedFees = replaceTxns.reduce((acc, tx) => acc + tx.fees, 0)
     const replacedByteLength = replaceTxns.reduce((acc, tx) => acc + tx.hex.length / 2, 0)
     const replaceFeeRate = replacedFees / replacedByteLength
@@ -262,6 +256,18 @@ function selectTxInputs (inputPool, amount) {
 
   selectTxInputs.total = selectedAmount
   return selectedInputs
+}
+
+function randomType () {
+  const addressTypes = [
+    'bech32',
+    'legacy',
+    'p2sh-segwit'
+  ]
+
+  const randomIndex = [Math.floor(Math.random() * 3)]
+
+  return addressTypes[randomIndex]
 }
 
 // bitcoind transfers can only parse up to 8 decimal places
