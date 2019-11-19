@@ -1,5 +1,6 @@
 const Test = require('./index.js')
 const Client = require('bitcoin-core')
+// const Client = require('bitcoind-rpc')
 const test = require('tape')
 const ptape = require('tape-promise').default
 const assert = require('nanoassert')
@@ -11,6 +12,14 @@ const rpcInfo = {
   username: 'test',
   password: 'password',
   network: 'regtest'
+}
+
+var config = {
+  protocol: 'http',
+  user: 'test',
+  pass: 'password',
+  host: '127.0.0.1',
+  port: '18443',
 }
 
 const client = new Client(rpcInfo)
@@ -37,26 +46,52 @@ ptest('create testing node', async t => {
   t.end()
 })
 
-ptest.skip('', async t => {
+ptest('reorg testing', async t => {
   const node = new Test(client)
+
   await node.init()
-  await node.generate(106)
+  await node.generate(200)
+  
+  const height = (await node.client.getBlockchainInformation()).blocks
+  const block170hash = await node.client.getBlockHash(height - 30)
 
+  t.equal(height, 200, '200 blocks should have been mined')
 
+  await node.reorg(39, 20)
 
-  const opts = {
-    url: 'http://localhost:18443',
-    body: 'invalidateblock',
-    params: ['aaaaaa']
-  }
+  const newHeight = (await node.client.getBlockchainInformation()).blocks
+  const newBlock170hash = await node.client.getBlockHash(height - 30)
 
-  get.post(opts, function (err, res) {
-    if (err) throw err
-    res.pipe(process.stdout)
-  })
+  t.equal(newHeight, 180, 'After reorg, block height should be 180')
+  t.notEqual(block170hash, newBlock170hash, '170th block hash should have changed')
+  t.end()
+})
 
-  await delay(5000)
-  await node.reorg(33)
+ptest.skip('reset testing', async t => {
+  const node = new Test(client)
+
+  await node.init()
+  await node.generate(150)
+  
+  const height = (await node.client.getBlockchainInformation()).blocks
+  const balance = await node.getBalance()
+  console.log(balance)
+
+  t.equal(height, 150, '200 blocks should have been mined')
+  t.assert(balance > 0, 'balance should be greater than 0')
+
+  await node.reset()
+  const newHeight = (await node.client.getBlockchainInformation()).blocks
+
+  t.equal(newHeight, 0, 'After reset, block height should be 0')
+
+  const address = await node.newAddress()
+  await node.generate(201, address)
+  await node.confirm()
+
+  const newBalance = await node.getBalance()
+  t.equal(balance, 5050, 'balance should 0 after reorg')
+  t.end()
 })
 
 ptest('new address', async t => {
@@ -208,7 +243,7 @@ ptest('collect coinbase transactions into a single transaction', async t => {
 
   const address = await node.newAddress()
 
-  const tx = await node.simpleSend(1, [address])
+  const tx = await node.simpleSend(1, [address, node.genAddress], [0.5])
   const mempool = await node.client.getRawMempool()
 
   t.assert(mempool.includes(tx), 'mempool should not contain txid')

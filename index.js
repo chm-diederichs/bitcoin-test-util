@@ -23,12 +23,20 @@ module.exports = class TestNode {
     this.regularBase = this.unspent.filter(utxo => !this.coinbase.includes(utxo))
   }
 
+  async update (addressType = randomType()) {
+    await this.updateUnspent()
+    await this.updateCoinbase()
+
+    this.regularBase = this.unspent.filter(utxo => !this.coinbase.includes(utxo))
+  }
+
   async reset () {
-    const blockCount = await this.client.getBlockchainInformation()
-    await this.reorg(blockCount.blocks, 0)
+    const blockCount = await (this.client.getBlockchainInfo()).blocks
+    await this.reorg(blockCount.blocks - 1, 0)
   }
 
   async getBalance () {
+    await this.update()
     return this.client.getBalance()
   }
 
@@ -36,8 +44,9 @@ module.exports = class TestNode {
     this.unspent = await this.client.listUnspent()
   }
 
-  async generate (blocks) {
-    await this.client.generateToAddress(blocks, this.genAddress)
+  async generate (blocks, address = this.genAddress) {
+    await this.client.generateToAddress(blocks, address)
+    await this.update()
   }
 
   async newAddress (addressType = randomType(), label = 'newAddress') {
@@ -63,20 +72,65 @@ module.exports = class TestNode {
     return txid
   }
 
+  async simplerSend (amount, address) {
+    const txid = await this.client.sendToAddress(address, amount)
+    return txid
+  }
+
+  async sendMany (amount, addresses, amounts) {
+    const balance = await this.getBalance()
+    assert(amount < balance, 'insufficient funds.')
+    assert(amounts.length <= addresses.length, 'too many amounts given')
+
+    const totalAmounts = amounts.reduce((acc, val) => acc + val, 0)
+    assert(totalAmounts < amount, 'total amounts exceedes amount being transferred')
+
+    let outputs1 = []
+
+    for (let i = 0; i < amounts.length; i++) {
+      const output = {}
+      output[addresses[i]] = amounts[i]
+      outputs1.push(output)
+    }
+
+    const remainingOutputs = addresses.length - amounts.length
+
+    if (remainingOutputs > 0) {
+      const remainingAmount = amount - totalAmounts
+      const leftoverOutputs = addresses.slice(amounts.length).map(address => {
+        const output = {}
+        output[address] = castToValidBTCFloat(remainingAmount / remainingOutputs) 
+        return output
+      })
+      outputs1 = outputs1.concat(leftoverOutputs)
+    }
+
+    return this.client.sendMany(...outputs1)
+  }
+
   async simpleSend (amount, addresses, amounts) {
     const balance = await this.getBalance()
     assert(amount < balance, 'insufficient funds.')
 
-    // amounts = amounts || addresses.map(address => castToValidBTCFloat(amount / addresses.length))
-    // assert(amounts.reduce((acc, val) => acc + val, 0) <= amount, 'Amounts to transfer exceed amount available'
-
+    amounts = amounts || addresses.map(address => castToValidBTCFloat(amount / addresses.length))
+    assert(amounts.reduce((acc, val) => acc + val, 0) <= amount, 'Amounts to transfer exceed amount available')
     const inputs = selectTxInputs(this.unspent, amount)
 
     const outputs = await pMap(
       addresses,
       address => {
         const output = {}
-        output[address] = castToValidBTCFloat(amount / addresses.length)
+        let toAddress
+        let toAmount
+
+        if (typeof address === 'string') {
+          toAddress = address
+          toAmount = amount / addresses.length
+        } else {
+          [toAddress, toAmount] = Object.entries(address).pop()
+        }
+
+        output[toAddress] = castToValidBTCFloat(toAmount)
         return output
       },
       { concurrency: 5 }
@@ -201,18 +255,15 @@ module.exports = class TestNode {
 
   async reorg (depth, height) {
     assert(depth, 'reorg depth must be specified')
-    height = height || depth + 1
+    if (!height && height !== 0) height = depth + 1
 
     const currentHeight = (await this.client.getBlockchainInfo()).blocks
     const targetHash = await this.client.getBlockHash(currentHeight - depth)
-    console.log(currentHeight)
-  
-    await this.client.invalidateBlock(targetHash)
+    
+    await this.client.command('invalidateblock', targetHash)
 
-    const newHeight = (await this.client.getBlockchainInfo()).blocks
-    console.log(currentHeight)
-
-    // await this.client.generateToAddress(height)
+    const address = await this.newAddress()
+    if (height > 0) await this.generate(height, address)
   }
 
   async replaceByFee (inputs = [], outputs = []) {
