@@ -1,6 +1,6 @@
 const assert = require('nanoassert')
 const pMap = require('p-map')
-
+const request = require('request')
 module.exports = class TestNode {
   constructor (node) {
     this.client = node
@@ -19,8 +19,17 @@ module.exports = class TestNode {
     await this.updateUnspent()
     await this.updateCoinbase()
 
-    this.genAddress = await this.client.getNewAddress('generate', addressType)
+    this.genAddress = await this.newAddress(addressType, 'generate')
     this.regularBase = this.unspent.filter(utxo => !this.coinbase.includes(utxo))
+  }
+
+  async reset () {
+    const blockCount = await this.client.getBlockchainInformation()
+    await this.reorg(blockCount.blocks, 0)
+  }
+
+  async getBalance () {
+    return this.client.getBalance()
   }
 
   async updateUnspent () {
@@ -29,6 +38,19 @@ module.exports = class TestNode {
 
   async generate (blocks) {
     await this.client.generateToAddress(blocks, this.genAddress)
+  }
+
+  async newAddress (addressType = randomType(), label = 'newAddress') {
+    const addressTypes = [
+      'legacy',
+      'p2sh-segwit',
+      'bech32'
+    ]
+
+    assert(addressTypes.includes(addressType), `Unrecognised address types, available options are ${addressTypes}`)
+
+    const address = this.client.getNewAddress(label, addressType)
+    return address
   }
 
   async send (inputs, outputs, replaceable = true, locktime = null) {
@@ -107,7 +129,7 @@ module.exports = class TestNode {
       { concurrency: 5 }
     )
 
-    const changeAddress = await this.client.getNewAddress('change', addressType)
+    const changeAddress = this.newAddress(addressType)
     const rpcInput = rpcFormat(selectedInputs, txOutputs, changeAddress)
 
     // create, sign and send tx
@@ -121,7 +143,7 @@ module.exports = class TestNode {
       const addressFormat = addressType || randomType()
 
       return async (amount) => {
-        const address = await this.client.getNewAddress('', addressFormat)
+        const address = await this.newAddress(addressFormat)
 
         const output = {}
 
@@ -135,11 +157,16 @@ module.exports = class TestNode {
     assert(depth, 'reorg depth must be specified')
     height = height || depth + 1
 
-    const currentHeight = await this.client.getblockcount()
-    const targetHash = await this.client.getblockhash(currentHeight - depth)
-    
+    const currentHeight = (await this.client.getBlockchainInfo()).blocks
+    const targetHash = await this.client.getBlockHash(currentHeight - depth)
+    console.log(currentHeight)
+  
     await this.client.invalidateBlock(targetHash)
-    await this.client.generateToAddress(height)
+
+    const newHeight = (await this.client.getBlockchainInfo()).blocks
+    console.log(currentHeight)
+
+    // await this.client.generateToAddress(height)
   }
 
   async replaceByFee (inputs = [], outputs = []) {
@@ -158,7 +185,7 @@ module.exports = class TestNode {
     }, { concurrency:  5 })
 
     assert(replaceTxns.length, 'No transactions are being replaced, use send methods instead')
-    
+
     const replacedFees = replaceTxns.reduce((acc, tx) => acc + tx.fees, 0)
     const replacedByteLength = replaceTxns.reduce((acc, tx) => acc + tx.hex.length / 2, 0)
     const replaceFeeRate = replacedFees / replacedByteLength
@@ -222,10 +249,8 @@ function rpcFormat (inputs, outputs, changeAddress, fees = 0.0004) {
 
   const inputTotal = inputs.reduce((acc, input) => acc + input.amount, 0)
   const outputTotal = outputs.reduce((acc, output) => acc + Object.values(output)[0], 0)
-  console.log(outputTotal, inputs, inputTotal, fees)
 
   changeOutput[changeAddress] = castToValidBTCFloat(inputTotal - outputTotal - fees)
-  console.log(changeOutput, 'changeOutput')
   const rpcOutputs = outputs.concat([changeOutput])
 
   const rpcInputs = inputs.map(input => {
