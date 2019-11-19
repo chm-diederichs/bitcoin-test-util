@@ -108,7 +108,7 @@ module.exports = class TestNode {
     return this.client.sendMany(...outputs1)
   }
 
-  async simpleSend (amount, addresses, amounts) {
+  async simpleSend (amount, addresses, amounts, confirm = true) {
     const balance = await this.getBalance()
     assert(amount < balance, 'insufficient funds.')
 
@@ -139,7 +139,10 @@ module.exports = class TestNode {
     const changeAddress = await this.newAddress()
     const rpcInput = rpcFormat(inputs, outputs, changeAddress)
 
-    return this.send(...rpcInput)
+    const txid = this.send(...rpcInput)
+    if (confirm) await this.confirm()
+      
+    return txid
   }
 
   async regularSend (amount, addresses, amounts) {

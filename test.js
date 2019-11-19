@@ -46,7 +46,7 @@ ptest('create testing node', async t => {
   t.end()
 })
 
-ptest('reorg testing', async t => {
+ptest.skip('reorg testing', async t => {
   const node = new Test(client)
 
   await node.init()
