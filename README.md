@@ -7,7 +7,9 @@ const Node - require('bitcoind-coinbase-test')
 
 const rpcInfo = {
   port: 18443,
-  ...
+  username: 'test',
+  password: 'password',
+  network: 'regtest'
 }
 
 const client = new Client(rpcInfo)
@@ -15,21 +17,23 @@ const node = new Node(client)
 ```
 
 ### API
-#### `node.init(addressType)`
+#### `async node.init(addressType)`
 Async method to correctly load initial state.
 
-The address to which mined coins are sent can be of specified type from `['legacy', 'p2sh-segwit', 'bech32']`, default is to randomly choose. 
+The address to which mined coins are sent can be of specified type from `['legacy', 'p2sh-segwit', 'bech32']`, default is to randomly choose.
 
-#### `node.updateUnspent()`
+#### `async node.reset(blocks)`
+
+#### `async node.updateUnspent()`
 Fetches list of UTXO from the bitcoin client
 
-#### `node.updateCoinbase()`
+#### `async node.updateCoinbase()`
 Parses unspent array for coinbase transactions
 
-#### `node.generate(blocks)`
+#### `async node.generate(blocks)`
 Generate `blocks` new blocks to genAddress
 
-#### `node.send(inputs, outputs, replaceable, locktime)`
+#### `async node.send(inputs, outputs, replaceable, locktime)`
 Submit a transaction to the mempool by passing as arguments the inputs and outputs for the transaction.
 
 `inputs` should be an array of inputs of the form: `{ txid: <txid>, vout: <vout> }`.
@@ -40,13 +44,13 @@ Submit a transaction to the mempool by passing as arguments the inputs and outpu
 
 `locktime` may be specified, but is set to null by default.
 
-#### `node.confirm()`
+#### `async node.confirm()`
 Confirms any mempool transactions by calling `node.generate(6)`
 
-#### `node.sendAndConfirm(inputs, outputs, locktime)`
+#### `async node.sendAndConfirm(inputs, outputs, locktime)`
 Combines `node.send()` and `node.confirm()` in one step, transactions are unreplaceable and `locktime` is set to null by default.
 
-#### `node.collect(amount, splitRatios, addressType, fees)`
+#### `async node.collect(amount, splitRatios, addressType, fees)`
 Combines coinbase transactions into standard UTXOs.
 
 `amount` specifies the total value of coinbase transactions to be collected, if unspecified `this.coinbaseAmt` is used, attempting to collect *all* coinbase funds.
@@ -57,10 +61,10 @@ Combines coinbase transactions into standard UTXOs.
 
 `fees` may be specified, but are otherwise arbitrarily set to `0.0005`.
 
-#### `node.reorg(depth, height)`
+#### `async node.reorg(depth, height)`
 Implement a reorganisation by invalidating the block `depth` below the current block height. The node shall then mine `height` new blocks from the new block height. Note that for a single node, this is equivalent to discarding any transaction data between blocks `currentBlockHeight - depth` and `currentBlockHeight`.
 
-#### `node.replaceByFee(inputs, outputs)`
+#### `async node.replaceByFee(inputs, outputs)`
 Constructs a transaction that shall replace a mempool transaction by paying higher fees. Inputs and outputs should be passed as arrays with th esame format as `send` methods and MUST contain at least one input *and/or* output with an existing mempool transaction. The feerate shall be calculated and set to ensure the previous transaction is replaced.
 
 ## Bitcoind on Docker
