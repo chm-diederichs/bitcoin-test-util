@@ -193,7 +193,7 @@ module.exports = class TestNode {
     return this.coinbase
   }
 
-  async collect (amount, splitRatio = [1], addressType = randomType(), fees = 0.0004) {
+  async collect (amount, splitRatio = [1], addressType = randomType(), feeRate = 0.003) {
     const self = this
 
     // equal split may be specified by given desired number of UTXOs as an int
@@ -208,6 +208,10 @@ module.exports = class TestNode {
     await this.updateCoinbase()
 
     // collect coinbase transactions
+    const fees = this.coinbase.length > 1000 
+      ? this.coinbase.length / 1000 * feeRate 
+      : 0.003
+
     amount = amount || this.coinbaseAmt - fees
 
     // generate rpc inputs to create transaction
@@ -258,6 +262,8 @@ module.exports = class TestNode {
   }
 
   async replaceByFee (inputs = [], outputs = []) {
+    const self = this
+
     const mempool = await this.client.getRawMempool()
     const replaceTxns = []
 
@@ -281,19 +287,19 @@ module.exports = class TestNode {
     const changeAddress = replaceTxns[0].vout.pop().scriptPubKey.addresses[0]
 
     // in case fees are not set, calculate minimum fees required
-    if (!fees) fees = calculateRbfFee()
+    const fees = await calculateRbfFee()
 
     // construct actual rbfInput using
-    const rbfInput = rpcInput(inputs, outputs, changeAddress, fees) 
+    const rbfInput = rpcFormat(inputs, outputs, changeAddress, fees) 
     return this.send(...rbfInput)
 
     // replace-by-fee helpers:
 
     // determine minimum fees required to replace tx
     async function calculateRbfFee () {
-      const weightTestInput = rpcFormat(rbfInputs, rbfOutputs, changeAddress, 0.0005)
-      const weightTestRaw = await this.client.createRawTransaction(...weightTestInput)
-      const weightTestTx = await this.client.decodeRawTransaction(weightTestRaw)
+      const weightTestInput = rpcFormat(inputs, outputs, changeAddress, 0.0005)
+      const weightTestRaw = await self.client.createRawTransaction(...weightTestInput)
+      const weightTestTx = await self.client.decodeRawTransaction(weightTestRaw)
       
       const weight = weightTestTx.weight
       const minimumFeeByRate = weight * replaceFeeRate

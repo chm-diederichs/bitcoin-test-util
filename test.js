@@ -244,7 +244,7 @@ ptest('collect coinbase transactions into a single transaction', async t => {
   const node = new Test(client)
   await node.init()
 
-  await node.reset(300)
+  await node.reset(500)
   await node.update()
 
   const startCoinbase = node.coinbase.length
@@ -252,7 +252,7 @@ ptest('collect coinbase transactions into a single transaction', async t => {
 
   t.equal(startRegularTxns, 0, 'node should only have coinbase txns at this point')
 
-  const tx = await node.collect(null, 10)
+  const tx = await node.collect()
 
   let mempool = await node.client.getRawMempool()
   t.assert(mempool.includes(tx), 'mempool should contain txid')
@@ -267,7 +267,7 @@ ptest('collect coinbase transactions into a single transaction', async t => {
 
   t.assert(startCoinbase > finalCoinbase, 'coinbase transactions should have been spent')
   t.equal(finalCoinbase, 6, 'node should have 6 coinbase transactions')
-  t.equal(node.regularTxns.length, 10, 'node should only have the 11 collect utxos other than coinbase')
+  t.equal(node.regularTxns.length, 1, 'node should only have the 11 collect utxos other than coinbase')
   t.end()
 })
 
