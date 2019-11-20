@@ -230,28 +230,37 @@ ptest('send & confirm a transaction via sendAndConfirm method', async t => {
 ptest('send a transaction using simpleSend', async t => {
   const node = new Test(client)
   await node.init()
-  await node.generate(200)
+  await node.reset(200)
 
-  const address = await node.newAddress()
+  const sendAddress = await node.newAddress()
 
-  const txid = await node.simpleSend(1, [address, node.genAddress], [0.5])
+  const txid = await node.simpleSend(1, [sendAddress, node.genAddress], [0.2])
   const mempool = await node.client.getRawMempool()
-
+  
   t.assert(!mempool.includes(txid), 'mempool should not contain txid')
+
+  const txInfo = await node.client.getRawTransaction(txid, 1)
+
+  t.equal(txInfo.vout.length, 3, 'tx should have 3 outputs')
+  t.equal(txInfo.vout[0].scriptPubKey.addresses[0], sendAddress, 'vout[0] should be sent to sendAddress')
+  t.equal(txInfo.vout[1].scriptPubKey.addresses[0], node.genAddress, 'vout[1] should be sent to the node.genAddress')
+  t.equal(txInfo.vout[0].value, 0.2, 'tx should send 0.2btc to vout[0]')
+  t.equal(txInfo.vout[1].value, 0.8, 'tx should send 0.8btc to vout[1]')
+
   t.end()
 })
 
-ptest.only('send a transaction and resend after reorg', async t => {
+ptest('send a transaction and resend after reorg', async t => {
   const node = new Test(client)
   await node.init()
-  await node.generate(200)
+  await node.reset(200)
 
   const address = await node.newAddress()
 
-  const originalTxid = await node.simpleSend(1, [address, node.genAddress], [0.5])
+  const originalTxid = await node.simpleSend(1, [address, node.genAddress], [0.2])
   const originalTx = await node.client.getRawTransaction(originalTxid, 1)
 
-  await node.reorgTx(originalTxid, 10)
+  await node.reorgTx(originalTxid, null, 10)
   const newTx = await node.client.getRawTransaction(originalTxid, 1)
 
   t.notDeepEqual(originalTx, newTx, 'both txns should have different confirmations')
@@ -262,7 +271,7 @@ ptest.only('send a transaction and resend after reorg', async t => {
 ptest('get mempool transactions', async t => {
   const node = new Test(client)
   await node.init()
-  await node.generate(200)
+  await node.reset(200)
 
   const address = await node.newAddress()
 
@@ -301,6 +310,7 @@ ptest('collect coinbase transactions into a single transaction', async t => {
   t.assert(startCoinbase > finalCoinbase, 'coinbase transactions should have been spent')
   t.equal(finalCoinbase, 6, 'node should have 6 coinbase transactions')
   t.equal(node.regularTxns.length, 1, 'node should only have the 11 collect utxos other than coinbase')
+
   t.end()
 })
 
@@ -309,7 +319,7 @@ ptest('replace a mempool transaction using replace-by-fee', async t => {
   await node.init()
 
   const input = node.unspent.pop()
-  const address = node.newAddress()
+  const address = await node.newAddress()
   const tx = await node.simpleSend(1, [address], null, false)
 
   let mempool = await node.client.getRawMempool()
@@ -317,8 +327,10 @@ ptest('replace a mempool transaction using replace-by-fee', async t => {
 
   const rbfAddress = await node.newAddress()
   const rbfTx = await node.replaceByFee([input])
+  const rbfTxInfo = await node.client.getRawTransaction(rbfTx, 1)
 
   mempool = await node.client.getRawMempool()
+
   t.assert(!mempool.includes(tx), 'mempool should no longer contain original tx')
   t.assert(mempool.includes(rbfTx), 'mempool should contain rbf tx')
 
@@ -331,11 +343,14 @@ ptest('reset', async t => {
 
   await node.reset()
 
-  const blockChainInfo = await node.client.getBlockchainInformation()
+  const blockCount = await node.client.getBlockCount()
+  await node.update()
   const balance = await node.getBalance()
   
-  t.equal(blockChainInfo.blocks, 0, 'block count should be 0 after reset')
+  t.equal(blockCount, 0, 'block count should be 0 after reset')
   t.equal(balance, 0, 'balance should be 0 after reset')
+  t.equal(node.unspent.length, 0, 'node should have no unspent txns')
+
   t.end()
 })
 
