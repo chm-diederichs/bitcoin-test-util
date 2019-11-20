@@ -1,6 +1,5 @@
 const Test = require('./index.js')
 const Client = require('bitcoin-core')
-// const Client = require('bitcoind-rpc')
 const test = require('tape')
 const ptape = require('tape-promise').default
 const assert = require('nanoassert')
@@ -12,14 +11,6 @@ const rpcInfo = {
   username: 'test',
   password: 'password',
   network: 'regtest'
-}
-
-var config = {
-  protocol: 'http',
-  user: 'test',
-  pass: 'password',
-  host: '127.0.0.1',
-  port: '18443',
 }
 
 const client = new Client(rpcInfo)
@@ -46,70 +37,23 @@ ptest('create testing node', async t => {
   t.end()
 })
 
-ptest('reorg testing', async t => {
+ptest('initiate', async t => {
   const node = new Test(client)
-
   await node.init()
-  await node.generate(200)
-  
-  const height = (await node.client.getBlockchainInformation()).blocks
-  const block170hash = await node.client.getBlockHash(height - 30)
 
-  t.equal(height, 200, '200 blocks should have been mined')
+  t.assert(typeof node.genAddress === 'string', 'genAddress should be loaded')
+  t.equal(node.coinbaseAmt, 0, 'coinbaseAmt should be 0')
+  t.deepEqual(node.unspent, [], 'unspent should be empty array')
+  t.deepEqual(node.coinbase, [], 'coinbase should be empty array')
+  t.deepEqual(node.regularTxns, [], 'regular txns should be empty array')
 
-  await node.reorg(39, 20)
-
-  const newHeight = (await node.client.getBlockchainInformation()).blocks
-  const newBlock170hash = await node.client.getBlockHash(height - 30)
-
-  t.equal(newHeight, 180, 'After reorg, block height should be 180')
-  t.notEqual(block170hash, newBlock170hash, '170th block hash should have changed')
-  t.end()
-})
-
-ptest('reset testing', async t => {
-  const node = new Test(client)
-
-  await node.init()
-  await node.generate(150)
-  
-  const height = (await node.client.getBlockchainInformation()).blocks
-  const balance = await node.getBalance()
-
-  t.equal(height, 150, '200 blocks should have been mined')
-  t.assert(balance > 0, 'balance should be greater than 0')
-
-  await node.reset()
-  
-  const resetHeight = (await node.client.getBlockchainInformation()).blocks
-  const resetBalance = await node.getBalance()
-
-  t.equal(resetHeight, 0, 'After reset, block height should be 0')
-  t.equal(resetBalance, 0, 'balance should 0 after reorg')
-
-  const address = await node.newAddress()
-  await node.generate(106, address)
-
-  const newHeight = (await node.client.getBlockchainInformation()).blocks
-  const newBalance = await node.getBalance()
-
-  t.equal(newHeight, 106, 'After reset, block height should be 200')
-  t.equal(newBalance, 300, 'balance should 5000 after regeneration')
-
-  await node.reset(106)
-
-  const reMineHeight = (await node.client.getBlockchainInformation()).blocks
-  const reMineBalance = await node.getBalance()
-
-  t.equal(reMineHeight, 106, 'After reset, block height should be 200')
-  t.equal(reMineBalance, 300, 'balance should 5000 after regeneration')
   t.end()
 })
 
 ptest('new address', async t => {
   const node = new Test(client)
+
   await node.init()
-  await node.reset(200)
 
   const legacyAddress = await node.newAddress('legacy')
   const p2shAddress = await node.newAddress('p2sh-segwit')
@@ -124,32 +68,6 @@ ptest('new address', async t => {
   t.end()
 })
 
-ptest('get balance', async t => {
-  const node = new Test(client)
-  await node.init()
-
-  t.assert(typeof node.genAddress === 'string', 'genAddress should be loaded')
-  t.equal(node.coinbaseAmt, 0, 'coinbaseAmt should be 0')
-  t.deepEqual(node.unspent, [], 'unspent should be empty array')
-  t.deepEqual(node.coinbase, [], 'coinbase should be empty array')
-  t.deepEqual(node.regularBase, [], 'genAddress should be empty array')
-
-  t.end()
-})
-
-ptest('initiate', async t => {
-  const node = new Test(client)
-  await node.init()
-
-  t.assert(typeof node.genAddress === 'string', 'genAddress should be loaded')
-  t.equal(node.coinbaseAmt, 0, 'coinbaseAmt should be 0')
-  t.deepEqual(node.unspent, [], 'unspent should be empty array')
-  t.deepEqual(node.coinbase, [], 'coinbase should be empty array')
-  t.deepEqual(node.regularBase, [], 'genAddress should be empty array')
-
-  t.end()
-})
-
 ptest('generate blocks and update functions', async t => {
   const node = new Test(client)
   await node.init()
@@ -158,11 +76,11 @@ ptest('generate blocks and update functions', async t => {
 
   t.assert(currentBlockHeight === 0, 'block height should be 0')
 
-  await node.generate(106)
+  await node.generate(200)
   
   const newBlockHeight = await client.getBlockCount()
 
-  t.equal(newBlockHeight - currentBlockHeight, 106, 'blockheight should be 100')
+  t.equal(newBlockHeight - currentBlockHeight, 200, 'blockheight should be 200')
 
   const balance = await node.getBalance()
   t.assert(typeof balance === 'number', 'balance should be a number')
@@ -172,9 +90,68 @@ ptest('generate blocks and update functions', async t => {
 
   t.notDeepEqual(node.unspent, [], 'unspent should not be empty')
   t.notDeepEqual(node.coinbase, [], 'coinbase should not be empty')
-  t.notDeepEqual(node.regularTxns, [], 'regularTxns should not be empty')
+  t.deepEqual(node.regularTxns, [], 'regularTxns should be empty')
   t.notEqual(node.coinbaseAmt, 0, 'coinbaseAmt should not be 0')
 
+  t.end()
+})
+
+ptest('reorg testing', async t => {
+  const node = new Test(client)
+
+  await node.init()
+  
+  const height = await client.getBlockCount()
+  const block170hash = await node.client.getBlockHash(height - 30)
+
+  t.equal(height, 200, '200 blocks should have been mined')
+
+  await node.reorg(39, 20)
+
+  const newHeight = await node.client.getBlockCount()
+  const newBlock170hash = await node.client.getBlockHash(height - 30)
+
+  t.equal(newHeight, 180, 'After reorg, block height should be 180')
+  t.notEqual(block170hash, newBlock170hash, '170th block hash should have changed')
+  t.end()
+})
+
+ptest('reset testing', async t => {
+  const node = new Test(client)
+
+  await node.init()
+  await node.generate(150)
+  
+  const height = await node.client.getBlockCount()
+  const balance = await node.getBalance()
+
+  t.equal(height, 330, '330 blocks should have been mined')
+  t.assert(balance > 0, 'balance should be greater than 0')
+
+  await node.reset()
+  
+  const resetHeight = await node.client.getBlockCount()
+  const resetBalance = await node.getBalance()
+
+  t.equal(resetHeight, 0, 'After reset, block height should be 0')
+  t.equal(resetBalance, 0, 'balance should 0 after reorg')
+
+  const address = await node.newAddress()
+  await node.generate(106, address)
+
+  const newHeight = await node.client.getBlockCount()
+  const newBalance = await node.getBalance()
+
+  t.equal(newHeight, 106, 'After reset, block height should be 200')
+  t.equal(newBalance, 300, 'balance should 5000 after regeneration')
+
+  await node.reset(106)
+
+  const reMineHeight = await node.client.getBlockCount()
+  const reMineBalance = await node.getBalance()
+
+  t.equal(reMineHeight, 106, 'After reset, block height should be 200')
+  t.equal(reMineBalance, 300, 'balance should 5000 after regeneration')
   t.end()
 })
 
@@ -250,29 +227,67 @@ ptest('send & confirm a transaction via sendAndConfirm method', async t => {
   t.end()
 })
 
-ptest('collect coinbase transactions into a single transaction', async t => {
+ptest('send a transaction using simpleSend', async t => {
   const node = new Test(client)
   await node.init()
 
   const address = await node.newAddress()
 
-  const tx = await node.simpleSend(1, [address, node.genAddress], [0.5])
+  const tx = await node.simpleSend(1, [address, node.genAddress], [0.5], false)
   const mempool = await node.client.getRawMempool()
 
   t.assert(mempool.includes(tx), 'mempool should not contain txid')
   t.end()
 })
 
-ptest('cause a reorganisation', async t => {
+ptest('collect coinbase transactions into a single transaction', async t => {
   const node = new Test(client)
   await node.init()
 
+  await node.reset(300)
+  await node.update()
+
+  const startCoinbase = node.coinbase.length
+  const startRegularTxns = node.regularTxns.length
+
+  t.equal(startRegularTxns, 0, 'node should only have coinbase txns at this point')
+
+  const tx = await node.collect(null, 10)
+
+  let mempool = await node.client.getRawMempool()
+  t.assert(mempool.includes(tx), 'mempool should contain txid')
+
+  await node.confirm()
+  await node.update()
+
+  mempool = await node.client.getRawMempool()
+  t.assert(!mempool.includes(tx), 'tx should be confirmed')
+
+  const finalCoinbase = node.coinbase.length
+
+  t.assert(startCoinbase > finalCoinbase, 'coinbase transactions should have been spent')
+  t.equal(finalCoinbase, 6, 'node should have 6 coinbase transactions')
+  t.equal(node.regularTxns.length, 10, 'node should only have the 11 collect utxos other than coinbase')
   t.end()
 })
 
 ptest('replace a mempool transaction using replace-by-fee', async t => {
   const node = new Test(client)
   await node.init()
+
+  const input = node.unspent.pop()
+  const address = node.newAddress()
+  const tx = await node.simpleSend(1, [address], null, false)
+
+  let mempool = await node.client.getRawMempool()
+  t.assert(mempool.includes(tx), 'mempool should contain txid')
+
+  const rbfAddress = await node.newAddress()
+  const rbfTx = await node.replaceByFee([input])
+
+  mempool = await node.client.getRawMempool()
+  t.assert(!mempool.includes(tx), 'mempool should no longer contain original tx')
+  t.assert(mempool.includes(rbfTx), 'mempool should contain rbf tx')
 
   t.end()
 })

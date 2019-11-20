@@ -20,20 +20,23 @@ module.exports = class TestNode {
     await this.updateCoinbase()
 
     this.genAddress = await this.newAddress(addressType, 'generate')
-    this.regularBase = this.unspent.filter(utxo => !this.coinbase.includes(utxo))
+    this.regularTxns = this.unspent.filter(filterOutRepeats(this.coinbase))
   }
 
   async update (addressType = randomType()) {
     await this.updateUnspent()
     await this.updateCoinbase()
 
-    this.regularBase = this.unspent.filter(utxo => !this.coinbase.includes(utxo))
+    this.regularTxns = this.unspent.filter(filterOutRepeats(this.coinbase))
   }
 
   async reset (reMine) {
-    const blockCount = await this.client.getBlockchainInformation()
+    const blockInfo = await this.client.getBlockCount()
 
-    await this.reorg(blockCount.blocks - 1, 0)
+    if (blockInfo.blocks !== 0) await this.reorg(blockInfo - 1, 0)
+
+    this.coinbase = []
+    this.regularTxns = []
     
     if (reMine) {
       const newAddress = await this.newAddress()
@@ -83,42 +86,20 @@ module.exports = class TestNode {
     return txid
   }
 
-  async sendMany (amount, addresses, amounts) {
-    const balance = await this.getBalance()
-    assert(amount < balance, 'insufficient funds.')
-    assert(amounts.length <= addresses.length, 'too many amounts given')
-
-    const totalAmounts = amounts.reduce((acc, val) => acc + val, 0)
-    assert(totalAmounts < amount, 'total amounts exceedes amount being transferred')
-
-    let outputs1 = []
-
-    for (let i = 0; i < amounts.length; i++) {
-      const output = {}
-      output[addresses[i]] = amounts[i]
-      outputs1.push(output)
-    }
-
-    const remainingOutputs = addresses.length - amounts.length
-
-    if (remainingOutputs > 0) {
-      const remainingAmount = amount - totalAmounts
-      const leftoverOutputs = addresses.slice(amounts.length).map(address => {
-        const output = {}
-        output[address] = castToValidBTCFloat(remainingAmount / remainingOutputs) 
-        return output
-      })
-      outputs1 = outputs1.concat(leftoverOutputs)
-    }
-
-    return this.client.sendMany(...outputs1)
-  }
-
   async simpleSend (amount, addresses, amounts, confirm = true) {
     const balance = await this.getBalance()
     assert(amount < balance, 'insufficient funds.')
 
     amounts = amounts || addresses.map(address => castToValidBTCFloat(amount / addresses.length))
+    const leftoverAddresses = addresses.slice(amounts.length)
+
+    if (leftoverAddresses.length > 0) {
+      const allocatedAmount = amounts.reduce((acc, val) => acc + val, 0)
+      const toLeftover = castToValidBTCFloat((amount - allocatedAmount) / leftoverAddresses.length)
+      const remainingAmounts = leftoverAddresses.map(address => toLeftover)
+      amounts = amounts.concat(remainingAmounts)
+    }
+
     assert(amounts.reduce((acc, val) => acc + val, 0) <= amount, 'Amounts to transfer exceed amount available')
     const inputs = selectTxInputs(this.unspent, amount)
 
@@ -186,17 +167,18 @@ module.exports = class TestNode {
   }
 
   // update coinbaseTxns and return available coinbase funds
-  async updateCoinbase () {
-    const currentCoinbase = this.coinbase || []
+  async updateCoinbase (initialArray) {
+    const currentCoinbase = (this.coinbase) ? this.coinbase.slice() : []
 
     // fetch new utxos
-    await this.updateUnspent()
+    // await this.updateUnspent()
 
     // filter already stored coinbase txns
     const newCoinbaseTxns = []
+
     const newUnspent = this.unspent.length === 0
       ? []
-      : this.unspent.filter(utxo => !currentCoinbase.includes(utxo))
+      : this.unspent.filter(filterOutRepeats(currentCoinbase))
 
     await pMap(newUnspent, async utxo => {
       const txInfo = await this.client.getTransaction(utxo.txid)
@@ -205,32 +187,34 @@ module.exports = class TestNode {
       if (txInfo.generated) newCoinbaseTxns.push(utxo)
     }, { concurrency: 5 })
 
-    // update coinbase array and total coinbase amount
     this.coinbase = currentCoinbase.concat(newCoinbaseTxns)
     this.coinbaseAmt = this.coinbase.reduce((acc, coinbase) => acc + coinbase.amount, 0)
 
     return this.coinbase
   }
 
-  async collect (amount, splitBy = [1], addressType = randomType(), fees = 0.0005) {
+  async collect (amount, splitRatio = [1], addressType = randomType(), fees = 0.0004) {
+    const self = this
+
     // equal split may be specified by given desired number of UTXOs as an int
-    splitBy = typeof splitBy === 'object'
-      ? splitBy
-      : new Array(splitBy).fill(1 / splitBy)
+    splitRatio = typeof splitRatio === 'object'
+      ? splitRatio
+      : new Array(splitRatio).fill(1 / splitRatio)
 
     // correct for floating point error
-    const correction = splitBy.reduce((acc, value) => acc + value) - 1
-    splitBy[0] -= correction
+    const correction = splitRatio.reduce((acc, value) => acc + value) - 1
+    splitRatio[0] -= correction
+
+    await this.updateCoinbase()
 
     // collect coinbase transactions
-    await this.updateCoinbase()
-    amount = amount || this.coinbaseAmt
+    amount = amount || this.coinbaseAmt - fees
 
     // generate rpc inputs to create transaction
     const selectedInputs = selectTxInputs(this.coinbase, amount)
 
     // generate transaction outputs
-    const transferAmounts = splitBy.map(portion => amount * portion)
+    const transferAmounts = splitRatio.map(portion => amount * portion)
 
     const txOutputs = await pMap(
       transferAmounts,
@@ -239,20 +223,18 @@ module.exports = class TestNode {
     )
 
     const changeAddress = await this.newAddress(addressType)
-    const rpcInput = rpcFormat(selectedInputs, txOutputs, changeAddress)
+    const rpcInput = rpcFormat(selectedInputs, txOutputs, changeAddress, fees)
 
     // create, sign and send tx
     const txid = await this.send(...rpcInput)
-
     return txid
 
     // map transfer amount to format for rpc input
     function createOutput (addressType) {
       // randomise address type if desired
-      const addressFormat = addressType || randomType()
-
       return async (amount) => {
-        const address = await this.newAddress(addressFormat)
+        const addressFormat = addressType || randomType()
+        const address = await self.newAddress(addressFormat)
 
         const output = {}
 
@@ -266,7 +248,7 @@ module.exports = class TestNode {
     assert(depth, 'reorg depth must be specified')
     if (!height && height !== 0) height = depth + 1
 
-    const currentHeight = (await this.client.getBlockchainInformation()).blocks
+    const currentHeight = await this.client.getBlockCount()
     const targetHash = await this.client.getBlockHash(currentHeight - depth)
     
     await this.client.command('invalidateblock', targetHash)
@@ -276,16 +258,16 @@ module.exports = class TestNode {
   }
 
   async replaceByFee (inputs = [], outputs = []) {
-    const mempool = this.client.getRawMempool()
+    const mempool = await this.client.getRawMempool()
     const replaceTxns = []
 
     // gather mempool transactions being replaced
-    await pMap(mempool, async txid => {
+    await pMap(mempool, async (txid) => {
       const tx = await this.client.getRawTransaction(txid, 1)
-      const repeatedInputs = tx.vin.filter(filterRepeats(inputs))
-      const repeatedOutputs = tx.vout.filter(filterRepeats(outputs))
+      const repeatedInputs = tx.vin.filter(filterForRepeats(inputs))
+      const repeatedOutputs = tx.vout.filter(filterForRepeats(outputs))
       if (repeatedInputs.length > 0 || repeatedOutputs.length > 0) {
-        tx.fees = feeCalculator(tx).absoluteFees
+        tx.fees = feeCalculator(tx).absoluteFee
         replaceTxns.push(tx)
       }
     }, { concurrency:  5 })
@@ -296,7 +278,7 @@ module.exports = class TestNode {
     const replacedByteLength = replaceTxns.reduce((acc, tx) => acc + tx.hex.length / 2, 0)
     const replaceFeeRate = replacedFees / replacedByteLength
 
-    const changeAddress = replaceTxns[0].vout.pop().addresses[0]
+    const changeAddress = replaceTxns[0].vout.pop().scriptPubKey.addresses[0]
 
     // in case fees are not set, calculate minimum fees required
     if (!fees) fees = calculateRbfFee()
@@ -306,12 +288,6 @@ module.exports = class TestNode {
     return this.send(...rbfInput)
 
     // replace-by-fee helpers:
-    // filter for repeated utxos
-    function filterRepeats (txList) {
-      return object => {
-        return txList.indexOf(target => matchUtxo(target, object)) !== -1
-      }
-    }
 
     // determine minimum fees required to replace tx
     async function calculateRbfFee () {
@@ -338,10 +314,10 @@ function feeCalculator (tx) {
   const inputAmount = tx.vin.reduce((acc, input) => acc + input.value, 0)
   const outputAmount = tx.vout.reduce((acc, output) => acc + output.value, 0)
 
-  const absoluteFees = inputAmount - outputAmount
+  const absoluteFee = inputAmount - outputAmount
 
   const byteLength = Buffer.from(tx.hex, 'hex').byteLength
-  const feeRate = absoluteFees / byteLength
+  const feeRate = absoluteFee / byteLength
 
   return {
     absoluteFee,
@@ -356,8 +332,11 @@ function rpcFormat (inputs, outputs, changeAddress, fees = 0.0004) {
   const inputTotal = inputs.reduce((acc, input) => acc + input.amount, 0)
   const outputTotal = outputs.reduce((acc, output) => acc + Object.values(output)[0], 0)
 
-  changeOutput[changeAddress] = castToValidBTCFloat(inputTotal - outputTotal - fees)
-  const rpcOutputs = outputs.concat([changeOutput])
+  if (inputTotal - outputTotal > 2 * fees) {
+    assert(inputTotal > outputTotal, 'output amount exceeds input amount')
+    changeOutput[changeAddress] = castToValidBTCFloat(inputTotal - outputTotal - fees)
+    outputs.push(changeOutput)
+  }
 
   const rpcInputs = inputs.map(input => {
     return {
@@ -368,7 +347,7 @@ function rpcFormat (inputs, outputs, changeAddress, fees = 0.0004) {
 
   return [
     rpcInputs,
-    rpcOutputs
+    outputs
   ]
 }
 
@@ -405,3 +384,17 @@ function randomType () {
 function castToValidBTCFloat (number) {
   return parseFloat(number.toFixed(8))
 }
+
+// filter for/out repeated utxos
+function filterForRepeats (txList) {
+  return object => {
+    return !(!txList.find(target => matchUtxo(target, object)))
+  }
+}
+
+function filterOutRepeats (txList) {
+  return object => {
+    return !txList.find(target => matchUtxo(target, object))
+  }
+}
+
