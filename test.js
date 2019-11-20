@@ -230,13 +230,46 @@ ptest('send & confirm a transaction via sendAndConfirm method', async t => {
 ptest('send a transaction using simpleSend', async t => {
   const node = new Test(client)
   await node.init()
+  await node.generate(200)
 
   const address = await node.newAddress()
 
-  const tx = await node.simpleSend(1, [address, node.genAddress], [0.5], false)
+  const txid = await node.simpleSend(1, [address, node.genAddress], [0.5])
   const mempool = await node.client.getRawMempool()
 
-  t.assert(mempool.includes(tx), 'mempool should not contain txid')
+  t.assert(!mempool.includes(txid), 'mempool should not contain txid')
+  t.end()
+})
+
+ptest.only('send a transaction and resend after reorg', async t => {
+  const node = new Test(client)
+  await node.init()
+  await node.generate(200)
+
+  const address = await node.newAddress()
+
+  const originalTxid = await node.simpleSend(1, [address, node.genAddress], [0.5])
+  const originalTx = await node.client.getRawTransaction(originalTxid, 1)
+
+  await node.reorgTx(originalTxid, 10)
+  const newTx = await node.client.getRawTransaction(originalTxid, 1)
+
+  t.notDeepEqual(originalTx, newTx, 'both txns should have different confirmations')
+
+  t.end()
+})
+
+ptest('get mempool transactions', async t => {
+  const node = new Test(client)
+  await node.init()
+  await node.generate(200)
+
+  const address = await node.newAddress()
+
+  const txid = await node.simpleSend(1, [address, node.genAddress], [0.5], false)
+  const mempool = await node.mempool()
+
+  t.assert(!mempool.includes(txid), 'mempool should not contain txid')
   t.end()
 })
 
