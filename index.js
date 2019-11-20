@@ -71,6 +71,24 @@ module.exports = class TestNode {
     return address
   }
 
+  async reorgTx (txid, insertionDepth) {
+    const originalTx = await this.client.getRawTransaction(txid, 1)
+    let depth = originalTx.confirmations
+
+    if (originalTx.confirmations < 11) {
+      depth += 11 - originalTx.confirmations
+      await this.confirm(11 - originalTx.confirmations)
+    }
+
+    await this.reorg(depth, depth - insertionDepth)
+    await this.update()
+
+    await this.client.sendRawTransaction(originalTx.hex)
+    await this.confirm(insertionDepth)
+    await this.confirm()
+    await this.update()
+  }
+
   async send (inputs, outputs, replaceable = true, locktime = null) {
     assert(typeof replaceable === 'boolean', 'replaceable flag must be a boolean')
 
@@ -153,8 +171,8 @@ module.exports = class TestNode {
     return this.send(inputs, outputs)
   }
 
-  async confirm () {
-    await this.generate(6)
+  async confirm (blocks = 6) {
+    await this.generate(blocks)
   }
 
   // TOFO: build and send tx
@@ -164,6 +182,16 @@ module.exports = class TestNode {
 
     await this.generate(6)
     return txid
+  }
+
+  async mempool () {
+    const mempool = await this.client.getRawMempool()
+
+    const mempoolTxns = await pMap (mempool, async txid => {
+      return this.client.getRawTransaction(txid, 1)
+    }, { concurrncy: 5 })
+
+    return mempoolTxns
   }
 
   // update coinbaseTxns and return available coinbase funds
