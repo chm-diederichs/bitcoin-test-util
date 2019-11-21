@@ -1,6 +1,7 @@
 const assert = require('nanoassert')
 const pMap = require('p-map')
 const request = require('request')
+
 module.exports = class TestNode {
   constructor (node) {
     this.client = node
@@ -368,6 +369,7 @@ module.exports = class TestNode {
     return this.send(...rbfInput)
 
     // replace-by-fee helpers:
+    // promise resolves with input data for an array of { txid, vout }
     function collectInputData (inputs) {
       return pMap(inputs, async input => {
         const inputTx = await self.client.getRawTransaction(input.txid, 1)
