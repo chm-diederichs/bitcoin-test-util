@@ -101,7 +101,7 @@ module.exports = class TestNode {
     await this.update()
 
     // at this point the transaction should not be visible to the wallet
-    if (this.unspent.find(utxo => utxo.txid === txid) === undefined) throw new Error('unspent should not contain tx')
+    if (this.unspent.find(utxo => utxo.txid === txid) !== undefined) throw new Error('unspent should not contain tx')
 
     // resend the same transaction data and continue mining to the original height
     await this.client.sendRawTransaction(originalTx.hex)
