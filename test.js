@@ -113,6 +113,13 @@ ptest('reorg testing', async t => {
 
   t.equal(newHeight, 180, 'After reorg, block height should be 180')
   t.notEqual(block170hash, newBlock170hash, '170th block hash should have changed')
+
+  await node.reorg(0)
+  const noOrgHeight = await node.client.getBlockCount()
+  const noOrg170hash = await node.client.getBlockHash(height - 30)
+
+  t.equal(noOrgHeight, newHeight, 'After no-org, block height should still be 180')
+  t.equal(noOrg170hash, newBlock170hash, '170th block hash should not have changed after no-org')
   t.end()
 })
 
