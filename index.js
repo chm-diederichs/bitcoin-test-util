@@ -313,6 +313,7 @@ module.exports = class TestNode {
   // block and remine up height blocks from that point, default is to mine
   // back up to the current height.
   async reorg (depth, height) {
+    if (depth === 0) return
     if (!depth) throw new Error('reorg depth must be specified')
     if (!height && height !== 0) height = depth + 1
 
