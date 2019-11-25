@@ -265,6 +265,39 @@ ptest('send a transaction and resend after reorg', async t => {
 
   t.notDeepEqual(originalTx, newTx, 'both txns should have different confirmations')
 
+
+  // let mempool = await node.client.getRawMempool()
+
+  // t.assert(!mempool.includes(originalTxid), 'mempool should not contain txid')
+  // const originalTx = await node.client.getRawTransaction(originalTxid, 1)
+
+  // await node.confirm(5)
+
+  // const originalTx2 = await node.client.getRawTransaction(originalTxid, 1)
+  // console.log(originalTx.confirmations, originalTx2.confirmations)
+
+  // await node.reorg(11)
+  // const originalTx3 = await node.client.getRawTransaction(originalTxid, 1)
+  // console.log(originalTx3)
+  // await node.update()
+
+  // t.assert(node.unspent.find(utxo => utxo.txid === originalTx3.txid) === undefined, 'unspent should not contain tx')
+
+  // mempool = await node.client.getRawMempool()
+  // const fail = await node.client.getRawTransaction(originalTxid, 1)
+
+  // t.assert(!mempool.includes(originalTxid), 'tx should be in the mempool')
+
+  // const repeatTxid = await node.client.sendRawTransaction(orignialTxInfo.hex)
+  // mempool = await node.client.getRawMempool()
+
+  // t.equal(repeatTxid, originalTxid, 'txid should be the same for identical tx')
+  // t.assert(mempool.includes(repeatTxid), 'mempool should contain repeat tx')
+
+  // await node.confirm()
+
+  // const confirmed = await node.client.getRawTransaction(repeatTxid, 1)
+
   t.end()
 })
 
@@ -350,7 +383,7 @@ ptest('reset', async t => {
   t.equal(blockCount, 0, 'block count should be 0 after reset')
   t.equal(balance, 0, 'balance should be 0 after reset')
   t.equal(node.unspent.length, 0, 'node should have no unspent txns')
-
+  
   t.end()
 })
 
