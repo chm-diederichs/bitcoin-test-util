@@ -164,7 +164,12 @@ module.exports = class TestNode {
     const txid = await this.send(...rpcInput)
     if (confirm) await this.confirm()
 
-    return txid
+    return {
+      inputs,
+      outputs,
+      changeAddress,
+      txid
+    }
 
     // map addresses and amounts to formatted outputs
     function mapToOutput (address, index) {

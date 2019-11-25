@@ -241,12 +241,12 @@ ptest('send a transaction using simpleSend', async t => {
 
   const sendAddress = await node.newAddress()
 
-  const txid = await node.simpleSend(1, [sendAddress, node.genAddress], [0.2])
+  const tx = await node.simpleSend(1, [sendAddress, node.genAddress], [0.2])
   const mempool = await node.client.getRawMempool()
   
-  t.assert(!mempool.includes(txid), 'mempool should not contain txid')
+  t.assert(!mempool.includes(tx.txid), 'mempool should not contain txid')
 
-  const txInfo = await node.client.getRawTransaction(txid, 1)
+  const txInfo = await node.client.getRawTransaction(tx.txid, 1)
 
   t.equal(txInfo.vout.length, 3, 'tx should have 3 outputs')
   t.equal(txInfo.vout[0].scriptPubKey.addresses[0], sendAddress, 'vout[0] should be sent to sendAddress')
@@ -265,10 +265,10 @@ ptest('send a transaction and resend after reorg', async t => {
   const address = await node.newAddress()
 
   const originalTxid = await node.simpleSend(1, [address, node.genAddress], [0.2])
-  const originalTx = await node.client.getRawTransaction(originalTxid, 1)
+  const originalTx = await node.client.getRawTransaction(originalTxid.txid, 1)
 
-  await node.reorgTx(originalTxid, null, 10)
-  const newTx = await node.client.getRawTransaction(originalTxid, 1)
+  await node.reorgTx(originalTxid.txid, null, 10)
+  const newTx = await node.client.getRawTransaction(originalTxid.txid, 1)
 
   t.notDeepEqual(originalTx, newTx, 'both txns should have different confirmations')
   t.end()
@@ -281,10 +281,10 @@ ptest('get mempool transactions', async t => {
 
   const address = await node.newAddress()
 
-  const txid = await node.simpleSend(1, [address, node.genAddress], [0.5], false)
+  const tx = await node.simpleSend(1, [address, node.genAddress], [0.5], false)
   const mempool = await node.mempool()
 
-  t.assert(!mempool.includes(txid), 'mempool should not contain txid')
+  t.assert(!mempool.includes(tx.txid), 'mempool should not contain txid')
   t.end()
 })
 
@@ -329,7 +329,7 @@ ptest('replace a mempool transaction using replace-by-fee', async t => {
   const tx = await node.simpleSend(1, [address], null, false)
 
   let mempool = await node.client.getRawMempool()
-  t.assert(mempool.includes(tx), 'mempool should contain txid')
+  t.assert(mempool.includes(tx.txid), 'mempool should contain txid')
 
   const rbfAddress = await node.newAddress()
   const rbfTx = await node.replaceByFee([input])
@@ -337,7 +337,7 @@ ptest('replace a mempool transaction using replace-by-fee', async t => {
 
   mempool = await node.client.getRawMempool()
 
-  t.assert(!mempool.includes(tx), 'mempool should no longer contain original tx')
+  t.assert(!mempool.includes(tx.txid), 'mempool should no longer contain original tx')
   t.assert(mempool.includes(rbfTx), 'mempool should contain rbf tx')
 
   t.end()
