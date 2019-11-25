@@ -76,7 +76,7 @@ module.exports = class TestNode {
       'bech32'
     ]
 
-    assert(addressTypes.includes(addressType), `Unrecognised address types, available options are ${addressTypes}`)
+    if (!addressTypes.includes(addressType)) throw new Error(`Unrecognised address types, available options are ${addressTypes}`)
 
     const address = this.client.getNewAddress(label, addressType)
     return address
@@ -88,7 +88,7 @@ module.exports = class TestNode {
     const originalTx = await this.client.getRawTransaction(txid, 1)
 
     depth = depth || originalTx.confirmations
-    assert(depth >= originalTx.confirmations, 'must reorg to below block containing tx')
+    if (depth < originalTx.confirmations) throw new Error('must reorg to below block containing tx')
 
     // miner won't accept repeat tx unless the original was >11 blocks deep
     if (originalTx.confirmations < 11) {
@@ -101,7 +101,7 @@ module.exports = class TestNode {
     await this.update()
 
     // at this point the transaction should not be visible to the wallet
-    assert(this.unspent.find(utxo => utxo.txid === txid) === undefined, 'unspent should not contain tx')
+    if (this.unspent.find(utxo => utxo.txid === txid) === undefined) throw new Error('unspent should not contain tx')
 
     // resend the same transaction data and continue mining to the original height
     await this.client.sendRawTransaction(originalTx.hex)
@@ -134,7 +134,7 @@ module.exports = class TestNode {
   // may be specified, otherwise funds are equally distributed by default
   async simpleSend (amount, addresses, distribution, confirm = true) {
     const balance = await this.getBalance()
-    assert(amount < balance, 'insufficient funds.')
+    if (amount > balance)  throw new Error('insufficient funds.')
 
     // if distribution is unspecified, equally distribute funds to addresses
     distribution = distribution || []
@@ -149,7 +149,7 @@ module.exports = class TestNode {
       distribution = distribution.concat(remainingAmounts)
     }
 
-    assert(distribution.reduce((acc, val) => acc + val, 0) <= amount, 'amounts to transfer exceed amount available')
+    if (distribution.reduce((acc, val) => acc + val, 0) > amount) throw new Error ('amounts to transfer exceed amount available')
 
     //  select inputs for the transaction
     const inputs = selectTxInputs(this.unspent, amount)
@@ -176,7 +176,7 @@ module.exports = class TestNode {
   }
 
   async regularSend (amount, addresses, amounts) {
-    assert(this.regularTxns.length !== 0, 'simple send uses regular txns, run node.collect() first')
+    if (!this.regularTxns.length) throw new Error ('simple send uses regular txns, run node.collect() first')
 
     // amounts = amounts || addresses.map(address => castToValidBTCFloat(amount / addresses.length))
     // assert(amounts.reduce((acc, val) => acc + val, 0) <= amount, 'Amounts to transfer exceed amount available'
@@ -313,7 +313,7 @@ module.exports = class TestNode {
   // block and remine up height blocks from that point, default is to mine
   // back up to the current height.
   async reorg (depth, height) {
-    assert(depth, 'reorg depth must be specified')
+    if (!depth, 'reorg depth must be specified')
     if (!height && height !== 0) height = depth + 1
 
     const currentHeight = await this.client.getBlockCount()
@@ -352,7 +352,7 @@ module.exports = class TestNode {
     }, { concurrency:  5 })
 
     // throw an error if no transactions are being replaced
-    assert(replaceTxns.length, 'No transactions are being replaced, use send methods instead')
+    if (!replaceTxns.length) throw new Error('No transactions are being replaced, use send methods instead')
 
     // calculate fee data from the original transaction
     const originalFees = replaceTxns.reduce((acc, tx) => acc + tx.fees, 0) 
@@ -428,11 +428,11 @@ function rpcFormat (inputs, outputs, changeAddress, fees = 0.0004) {
 
   // if the transaction is paying too high a fee, generate a change address
   if (currentFee > 2 * fees) {
-    assert(inputTotal > outputTotal, 'output amount exceeds input amount')
+    if (inputTotal < outputTotal) throw new Error('output amount exceeds input amount')
     changeOutput[changeAddress] = castToValidBTCFloat(inputTotal - outputTotal - fees)
     rpcOutputs.push(changeOutput)
   } else {
-    assert(currentFee > fees)
+    if (currentFee < fees) throw new Error('not enough funds to cover fees')
   }
 
   const rpcInputs = inputs.map(input => {
