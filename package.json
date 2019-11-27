@@ -1,6 +1,6 @@
 {
   "name": "bitcoin-test-util",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "collect coinbase txns for testing",
   "main": "index.js",
   "scripts": {
