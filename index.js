@@ -132,7 +132,7 @@ module.exports = class TestNode {
 
   // specify and amount and a list of addresses to send to, fund distribution
   // may be specified, otherwise funds are equally distributed by default
-  async simpleSend (amount, addresses, distribution, confirm = true) {
+  async simpleSend (amount, addresses, distribution, confirm = true, feeRate = 0.00004) {
     const balance = await this.getBalance()
     if (amount > balance)  throw new Error('insufficient funds.')
 
@@ -158,7 +158,9 @@ module.exports = class TestNode {
     const outputs = addresses.map(mapToOutput)
     // generate a change address and format input data for rpc
     const changeAddress = await this.newAddress()
-    const rpcInput = rpcFormat(inputs, outputs, changeAddress)
+
+    const fees = await this.calculateFeeByRate(inputs, outputs, changeAddress, feeRate)
+    const rpcInput = rpcFormat(inputs, outputs, changeAddress, fees)
 
     // send and confirm (unless instructed not to) transaction
     const txid = await this.send(...rpcInput)
@@ -368,7 +370,13 @@ module.exports = class TestNode {
     const changeAddress = await this.newAddress()
 
     // in case fees are not set, calculate minimum fees required
-    const fees = await calculateRbfFee()
+    const minimumFeeByRate = await this.calculateFeeByRate(inputs, outputs, changeAddress, originalFeeRate)
+    
+    const minimumFees = originalFees > minimumFeeByRate
+      ? originalFees + 0.000002
+      : minimumFeeByRate
+    
+    const fees = castToValidBTCFloat(minimumFees)
 
     // construct actual rbfInput using
     const rbfInput = rpcFormat(inputs, outputs, changeAddress, fees) 
@@ -382,23 +390,18 @@ module.exports = class TestNode {
         return inputTx.vout[input.vout]
       }, { concurrency: 5 })
     }
+  }
 
-    // determine minimum fees required to replace tx
-    async function calculateRbfFee () {
-      const weightTestInput = rpcFormat(inputs, outputs, changeAddress, 0.0005)
-      const weightTestRaw = await self.client.createRawTransaction(...weightTestInput)
-      const weightTestSigned = await self.client.signRawTransactionWithWallet(weightTestRaw)
-      const weightTestTx = await self.client.decodeRawTransaction(weightTestSigned.hex)
-      
-      const virtualSize = weightTestTx.weight / 4
-      const minimumFeeByRate = virtualSize * originalFeeRate
+  // estimate the size of a transaction and return the fee for a given rate
+  async calculateFeeByRate (inputs, outputs, changeAddress, feeRate) {
+    const weightTestInput = rpcFormat(inputs, outputs, changeAddress, 0.0005)
+    const weightTestRaw = await this.client.createRawTransaction(...weightTestInput)
+    const weightTestSigned = await this.client.signRawTransactionWithWallet(weightTestRaw)
+    const weightTestTx = await this.client.decodeRawTransaction(weightTestSigned.hex)
 
-      const minimumFees = originalFees > minimumFeeByRate 
-        ? originalFees + 0.0000019
-        : minimumFeeByRate
+    const virtualSize = weightTestTx.weight / 4
 
-      return castToValidBTCFloat(minimumFees)
-    }
+    return virtualSize * feeRate
   }
 }
 
