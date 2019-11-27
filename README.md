@@ -1,4 +1,4 @@
-# bitcoind-coinbase-test
+# bitcoin-test-util
 ## Usage
 A testing node is instantiated by passsing a bitcoin-core client to the contructor
 ```js
