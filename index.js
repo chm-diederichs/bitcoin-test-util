@@ -374,7 +374,7 @@ module.exports = class TestNode {
     
     const minimumFees = originalFees > minimumFeeByRate
       ? originalFees + 0.000002
-      : minimumFeeByRate
+      : minimumFeeByRate + 0.000001
     
     const fees = castToValidBTCFloat(minimumFees)
 
