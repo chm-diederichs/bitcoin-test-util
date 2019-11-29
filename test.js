@@ -361,12 +361,11 @@ ptest('replaceByFee: replace a single transaction', async t => {
 
   const rbfAddress = await node.newAddress()
   const rbfTx = await node.replaceByFee([input])
-  const rbfTxInfo = await node.client.getRawTransaction(rbfTx, 1)
 
   mempool = await node.client.getRawMempool()
 
   t.assert(!mempool.includes(tx.txid), 'mempool should no longer contain original tx')
-  t.assert(mempool.includes(rbfTx), 'mempool should contain rbf tx')
+  t.assert(mempool.includes(rbfTx.txid), 'mempool should contain rbf tx')
   t.end()
 })
 
@@ -404,7 +403,7 @@ ptest('replaceByFee: replace small tx with large tx', async t => {
   mempool = await node.client.getRawMempool()
 
   t.assert(!mempool.includes(tx.txid), 'mempool should no longer contain original tx')
-  t.assert(mempool.includes(rbfTx), 'mempool should contain rbf tx')
+  t.assert(mempool.includes(rbfTx.txid), 'mempool should contain rbf tx')
 
   t.end()
 })
@@ -427,7 +426,7 @@ ptest('replaceByFee: replace large tx with small tx', async t => {
   mempool = await node.client.getRawMempool()
 
   t.assert(!mempool.includes(tx.txid), 'mempool should no longer contain original tx')
-  t.assert(mempool.includes(rbfTx), 'mempool should contain rbf tx')
+  t.assert(mempool.includes(rbfTx.txid), 'mempool should contain rbf tx')
 
   t.end()
 })
@@ -440,7 +439,7 @@ ptest('replaceByFee: replace multiple tx with small tx', async t => {
   await node.update()
 
   const addresses = {}
-  
+
   addresses.smallTx = await node.newAddress(10)
   addresses.largeTx = await node.newAddress(80)
 
@@ -460,7 +459,7 @@ ptest('replaceByFee: replace multiple tx with small tx', async t => {
 
   t.assert(!mempool.includes(smallTx.txid), 'mempool should no longer contain small tx')
   t.assert(!mempool.includes(largeTx.txid), 'mempool should no longer contain large tx')
-  t.assert(mempool.includes(rbfTx), 'mempool should contain rbf tx')
+  t.assert(mempool.includes(rbfTx.txid), 'mempool should contain rbf tx')
 
   t.end()
 })
@@ -499,7 +498,7 @@ ptest('replaceByFee: replace multiple tx with large tx', async t => {
 
   t.assert(!mempool.includes(smallTx.txid), 'mempool should no longer contain small tx')
   t.assert(!mempool.includes(largeTx.txid), 'mempool should no longer contain large tx')
-  t.assert(mempool.includes(rbfTx), 'mempool should contain rbf tx')
+  t.assert(mempool.includes(rbfTx.txid), 'mempool should contain rbf tx')
 
   t.end()
 })

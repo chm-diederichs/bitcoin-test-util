@@ -366,7 +366,7 @@ module.exports = class TestNode {
   // a transaction may be replaced by another transaction with at least
   // one overlapping input, so long as the replacement transaction
   // pays higher absolute fees and a higher fee rate.
-  async replaceByFee (inputs = [], outputs = []) {
+  async replaceByFee (inputs = [], outputs = [], confirm = false) {
     const self = this
 
     const mempool = await this.client.getRawMempool()
@@ -415,7 +415,15 @@ module.exports = class TestNode {
     // construct actual rbfInput using
     const rbfInput = rpcFormat(inputs, outputs, changeAddress, fees) 
 
-    return this.send(...rbfInput)
+    const txid = await this.send(...rbfInput)
+    if (confirm) await this.confirm()
+
+    return {
+      inputs,
+      outputs,
+      changeAddress,
+      txid
+    }
 
     // replace-by-fee helpers:
     // promise resolves with input data for an array of { txid, vout }
