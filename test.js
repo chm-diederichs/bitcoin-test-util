@@ -5,6 +5,7 @@ const ptape = require('tape-promise').default
 const assert = require('nanoassert')
 const ptest = ptape(test)
 const get = require('simple-get')
+const pMap = require('p-map')
 
 const rpcInfo = {
   port: 18443,
@@ -37,7 +38,7 @@ ptest('create testing node', async t => {
   t.end()
 })
 
-ptest('initiate', async t => {
+ptest('init: initiate', async t => {
   const node = new Test(client)
   await node.init()
 
@@ -50,25 +51,49 @@ ptest('initiate', async t => {
   t.end()
 })
 
-ptest('new address', async t => {
+ptest('newAddress: new address', async t => {
   const node = new Test(client)
 
   await node.init()
 
-  const legacyAddress = await node.newAddress('legacy')
-  const p2shAddress = await node.newAddress('p2sh-segwit')
-  const bech32Address = await node.newAddress('bech32')
+  const legacyAddress = await node.newAddress(null, 'legacy')
+  const p2shAddress = await node.newAddress(null, 'p2sh-segwit')
+  const bech32Address = await node.newAddress(null, 'bech32')
   const randomAddress = await node.newAddress()
 
   t.assert(typeof legacyAddress === 'string', 'legacyAddress should be a string')
   t.assert(typeof p2shAddress === 'string', 'p2shAddress should be a string')
-  t.assert(typeof bech32Address === 'string', 'bech32Address should be a string')
+  t.assert(bech32Address.slice(0, 5) === 'bcrt1', 'bech32Address should be a string')
   t.assert(typeof randomAddress === 'string', 'randomAddress should be a string')
+
+  const addresses = await node.newAddress(100)
+
+  const correctlyLoaded = addresses.reduce((acc, address) => acc && (typeof address === 'string'), true)
+  const bech32Loaded = addresses.filter(address => address.slice(0, 5) === 'bcrt1')
+  const legacyLoaded = addresses.filter(ad => ad.slice(0, 1) === 'm' || ad.slice(0, 1) === 'n')
+
+  const randomlyLoaded = legacyLoaded.length + bech32Loaded.length < 100
+
+  t.assert(correctlyLoaded, 'addresses should be correctly loaded')
+  t.assert(randomlyLoaded, 'addresses should be randomly loaded')
+
+  const bech32Addresses = await node.newAddress(10, 'bech32')
+  const onlyBech32Loaded = bech32Addresses.filter(address => address.slice(0, 5) === 'bcrt1')
+
+  const legacyAddresses = await node.newAddress(10, 'legacy')
+  const onlyLegacyLoaded = legacyAddresses.filter(ad => ad.slice(0, 1) === 'm' || ad.slice(0, 1) === 'n')
+
+  const p2shAddresses = await node.newAddress(10, 'p2sh-segwit')
+  const onlyP2shLoaded = p2shAddresses.filter(address => address.slice(0, 1) === '2')
+
+  t.assert(onlyLegacyLoaded.length === 10, 'only legacy addresses should be loaded')
+  t.assert(onlyBech32Loaded.length === 10, 'only bech32 addresses should be loaded')
+  t.assert(onlyP2shLoaded.length === 10, 'only p2sh-segwit addresses should be loaded')
 
   t.end()
 })
 
-ptest('generate blocks and update functions', async t => {
+ptest('generate / update: generate blocks and update', async t => {
   const node = new Test(client)
   await node.init()
 
@@ -96,7 +121,7 @@ ptest('generate blocks and update functions', async t => {
   t.end()
 })
 
-ptest('reorg testing', async t => {
+ptest('reorg: reorg testing', async t => {
   const node = new Test(client)
 
   await node.init()
@@ -123,7 +148,7 @@ ptest('reorg testing', async t => {
   t.end()
 })
 
-ptest('reset testing', async t => {
+ptest('reset: reset testing', async t => {
   const node = new Test(client)
 
   await node.init()
@@ -162,7 +187,7 @@ ptest('reset testing', async t => {
   t.end()
 })
 
-ptest('send a transaction', async t => {
+ptest('send: send a transaction', async t => {
   const node = new Test(client)
 
   await node.init()
@@ -191,7 +216,7 @@ ptest('send a transaction', async t => {
   t.end()
 })
 
-ptest('confirm transaction', async t => {
+ptest('confirm: confirm transaction', async t => {
   const node = new Test(client)
   await node.init()
 
@@ -206,7 +231,7 @@ ptest('confirm transaction', async t => {
   t.end()
 })
 
-ptest('send & confirm a transaction via sendAndConfirm method', async t => {
+ptest('sendAndConfirm: send & confirm a transaction', async t => {
   const node = new Test(client)
   await node.init()
 
@@ -234,7 +259,7 @@ ptest('send & confirm a transaction via sendAndConfirm method', async t => {
   t.end()
 })
 
-ptest('send a transaction using simpleSend', async t => {
+ptest('simpleSend: send a transaction', async t => {
   const node = new Test(client)
   await node.init()
   await node.reset(200)
@@ -257,7 +282,7 @@ ptest('send a transaction using simpleSend', async t => {
   t.end()
 })
 
-ptest('send a transaction and resend after reorg', async t => {
+ptest('reorgTx: send a transaction and resend after reorg', async t => {
   const node = new Test(client)
   await node.init()
   await node.reset(200)
@@ -274,7 +299,7 @@ ptest('send a transaction and resend after reorg', async t => {
   t.end()
 })
 
-ptest('get mempool transactions', async t => {
+ptest('mempool: get mempool transactions', async t => {
   const node = new Test(client)
   await node.init()
   await node.reset(200)
@@ -288,7 +313,7 @@ ptest('get mempool transactions', async t => {
   t.end()
 })
 
-ptest('collect coinbase transactions into a single transaction', async t => {
+ptest('collect: gather coinbase transactions into a single transaction', async t => {
   const node = new Test(client)
   await node.init()
 
@@ -320,9 +345,12 @@ ptest('collect coinbase transactions into a single transaction', async t => {
   t.end()
 })
 
-ptest('replace a mempool transaction using replace-by-fee', async t => {
+ptest('replaceByFee: replace a single transaction', async t => {
   const node = new Test(client)
   await node.init()
+
+  await node.reset(200)
+  await node.update()
 
   const input = node.unspent.pop()
   const address = await node.newAddress()
@@ -339,11 +367,144 @@ ptest('replace a mempool transaction using replace-by-fee', async t => {
 
   t.assert(!mempool.includes(tx.txid), 'mempool should no longer contain original tx')
   t.assert(mempool.includes(rbfTx), 'mempool should contain rbf tx')
+  t.end()
+})
+
+ptest('replaceByFee: replace small tx with large tx', async t => {
+  const node = new Test(client)
+  await node.init()
+
+  await node.reset(200)
+  await node.update()
+
+  const input = node.unspent.pop()
+  const addresses = await node.newAddress(10)
+
+  const tx = await node.simpleSend(1, addresses, null, false, null, 0.000009)
+  mempool = await node.client.getRawMempool()
+
+  t.assert(mempool.includes(tx.txid), 'mempool should contain txid')
+
+  const lengthRatio = 8
+  const outputs = []
+
+  for (let vout of tx.outputs) {
+    const amount = Object.values(vout).pop()
+
+    for (let i = 0; i < lengthRatio; i++) {
+      output = {}
+      const address = await node.newAddress()
+
+      output[address] = amount / lengthRatio
+      outputs.push(output)
+    }
+  }
+
+  const rbfTx = await node.replaceByFee(tx.inputs, outputs)
+  mempool = await node.client.getRawMempool()
+
+  t.assert(!mempool.includes(tx.txid), 'mempool should no longer contain original tx')
+  t.assert(mempool.includes(rbfTx), 'mempool should contain rbf tx')
 
   t.end()
 })
 
-ptest('reset', async t => {
+ptest('replaceByFee: replace large tx with small tx', async t => {
+  const node = new Test(client)
+  await node.init()
+
+  await node.reset(200)
+  await node.update()
+
+  const addresses = await node.newAddress(80)
+
+  const tx = await node.simpleSend(1, addresses, null, false, 0.0000005)
+  mempool = await node.client.getRawMempool()
+
+  t.assert(mempool.includes(tx.txid), 'mempool should contain txid')
+
+  const rbfTx = await node.replaceByFee(tx.inputs.slice(0, 1), [])
+  mempool = await node.client.getRawMempool()
+
+  t.assert(!mempool.includes(tx.txid), 'mempool should no longer contain original tx')
+  t.assert(mempool.includes(rbfTx), 'mempool should contain rbf tx')
+
+  t.end()
+})
+
+ptest('replaceByFee: replace multiple tx with small tx', async t => {
+  const node = new Test(client)
+  await node.init()
+
+  await node.reset(200)
+  await node.update()
+
+  const addresses = {}
+  
+  addresses.smallTx = await node.newAddress(10)
+  addresses.largeTx = await node.newAddress(80)
+
+  const smallTx = await node.simpleSend(1, addresses.smallTx, null, false, null, 0.000009)
+  mempool = await node.client.getRawMempool()
+
+  const largeTx = await node.simpleSend(1, addresses.largeTx, null, false, 0.0000005)
+  mempool = await node.client.getRawMempool()
+
+  t.assert(mempool.includes(largeTx.txid), 'mempool should contain txid')
+  t.assert(mempool.includes(smallTx.txid), 'mempool should contain txid')
+
+  const outputs = []
+  const rbfTx = await node.replaceByFee([largeTx.inputs.pop(), smallTx.inputs.pop()], outputs)
+
+  mempool = await node.client.getRawMempool()
+
+  t.assert(!mempool.includes(smallTx.txid), 'mempool should no longer contain small tx')
+  t.assert(!mempool.includes(largeTx.txid), 'mempool should no longer contain large tx')
+  t.assert(mempool.includes(rbfTx), 'mempool should contain rbf tx')
+
+  t.end()
+})
+
+
+ptest('replaceByFee: replace multiple tx with large tx', async t => {
+  const node = new Test(client)
+  await node.init()
+
+  await node.reset(200)
+  await node.update()
+
+  const addresses = {}
+
+  addresses.smallTx = await node.newAddress(10)
+  addresses.largeTx = await node.newAddress(80)
+
+  const smallTx = await node.simpleSend(1, addresses.smallTx, null, false, null, 0.000009)
+  mempool = await node.client.getRawMempool()
+
+  const largeTx = await node.simpleSend(1, addresses.largeTx, null, false, 0.0000005)
+  mempool = await node.client.getRawMempool()
+
+  t.assert(mempool.includes(largeTx.txid), 'mempool should contain small txid')
+  t.assert(mempool.includes(smallTx.txid), 'mempool should contain large txid')
+
+  const outputs = addresses.largeTx.map(address => {
+    const output = {}
+    output[address] = 0.0001
+    return output
+  })
+
+  const rbfTx = await node.replaceByFee([largeTx.inputs.pop(), smallTx.inputs.pop()], outputs)
+
+  mempool = await node.client.getRawMempool()
+
+  t.assert(!mempool.includes(smallTx.txid), 'mempool should no longer contain small tx')
+  t.assert(!mempool.includes(largeTx.txid), 'mempool should no longer contain large tx')
+  t.assert(mempool.includes(rbfTx), 'mempool should contain rbf tx')
+
+  t.end()
+})
+
+ptest('reset: reset blockchain to genesis state', async t => {
   const node = new Test(client)
   await node.init()
 

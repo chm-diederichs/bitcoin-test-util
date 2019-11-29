@@ -22,12 +22,12 @@ module.exports = class TestNode {
     await this.updateCoinbase()
 
     // coinbase utxos shall be sent to genAddress by default
-    this.genAddress = await this.newAddress(addressType, 'generate')
+    this.genAddress = await this.newAddress(null, null, 'generate')
     this.regularTxns = this.unspent.filter(filterOutRepeats(this.coinbase))
   }
 
   // update internal state from blockchain
-  async update (addressType = randomType()) {
+  async update () {
     await this.updateUnspent()
     await this.updateCoinbase()
 
@@ -68,18 +68,43 @@ module.exports = class TestNode {
     await this.update()
   }
 
-  // generate a new bitcoin address, type may be specified, otherwise type is chosen randomly
-  async newAddress (addressType = randomType(), label = 'newAddress') {
+  // generate a new bitcoin address, type may be specified, otherwise type 
+  // is chosen randomly, multiple addresses can also be requested
+  async newAddress (multiple, addressType, label = '') { 
     const addressTypes = [
       'legacy',
       'p2sh-segwit',
       'bech32'
     ]
 
-    if (!addressTypes.includes(addressType)) throw new Error(`Unrecognised address types, available options are ${addressTypes}`)
+    if (multiple == null) {
+      if (addressType == null) {
+        addressType = randomType()
+      }
+      checkType(addressType)
+      return this.client.getNewAddress(label, addressType)
+    }
 
-    const address = this.client.getNewAddress(label, addressType)
-    return address
+    // if multiple addresses requested, can all 
+    // be specific type or each randomly assigned
+    const addressList = new Array(multiple)
+
+    if (addressType) {
+      checkType(addressType)
+      addressList.fill(addressType)
+    } else {
+      for (let i = 0; i < multiple; i++) {
+        addressList[i] = randomType()
+      }
+    }
+
+    return pMap(addressList, async type => {
+      return this.client.getNewAddress(label, type)
+    }, { concurrency: 8 })
+
+    function checkType (addressType) {
+      if (!addressTypes.includes(addressType)) throw new Error(`unrecognised address types`)
+    }
   }
 
   // simulate a reorg to cancel out a specific transaction
@@ -132,7 +157,7 @@ module.exports = class TestNode {
 
   // specify and amount and a list of addresses to send to, fund distribution
   // may be specified, otherwise funds are equally distributed by default
-  async simpleSend (amount, addresses, distribution, confirm = true, feeRate = 0.00004) {
+  async simpleSend (amount, addresses, distribution, confirm = true, feeRate = 0.000004, fees) {
     const balance = await this.getBalance()
     if (amount > balance)  throw new Error('insufficient funds.')
 
@@ -159,7 +184,11 @@ module.exports = class TestNode {
     // generate a change address and format input data for rpc
     const changeAddress = await this.newAddress()
 
-    const fees = await this.calculateFeeByRate(inputs, outputs, changeAddress, feeRate)
+    if (!fees) {
+      const txSize = await this.calculateTxSize(inputs, outputs, changeAddress, feeRate)
+      fees = txSize * feeRate
+    }
+
     const rpcInput = rpcFormat(inputs, outputs, changeAddress, fees)
 
     // send and confirm (unless instructed not to) transaction
@@ -363,23 +392,29 @@ module.exports = class TestNode {
     if (!replaceTxns.length) throw new Error('No transactions are being replaced, use send methods instead')
 
     // calculate fee data from the original transaction
-    const originalFees = replaceTxns.reduce((acc, tx) => acc + tx.fees, 0) 
-    const originalVirtualSize = replaceTxns.reduce((acc, tx) => acc + tx.weight, 0) / 4
-    const originalFeeRate = originalFees / originalVirtualSize
+    const originalFees = replaceTxns.reduce((acc, tx) => acc + tx.fees, 0)
+    const originalVirtualSize = Math.max(...replaceTxns.map(tx => tx.weight / 4))
+    const originalFeeRate = Math.max(...replaceTxns.map(tx => 4 * tx.fees / tx.weight))
 
     const changeAddress = await this.newAddress()
 
     // in case fees are not set, calculate minimum fees required
-    const minimumFeeByRate = await this.calculateFeeByRate(inputs, outputs, changeAddress, originalFeeRate)
-    
+    const rbfTxSize = await this.calculateTxSize(inputs, outputs, changeAddress, originalFeeRate)
+    const sizeRatio = rbfTxSize / originalVirtualSize
+
+    // at least 500sats added to minimum fee to be sure relay fees are covered
+    const minimumFeeByRate = rbfTxSize * originalFeeRate
+    const feeAdjustor = sizeRatio > 1 ? sizeRatio * 0.000005 : 0.000005
+
     const minimumFees = originalFees > minimumFeeByRate
-      ? originalFees + 0.000002
-      : minimumFeeByRate + 0.000001
+      ? originalFees
+      : minimumFeeByRate
     
-    const fees = castToValidBTCFloat(minimumFees)
+    const fees = castToValidBTCFloat(minimumFees + feeAdjustor)
 
     // construct actual rbfInput using
     const rbfInput = rpcFormat(inputs, outputs, changeAddress, fees) 
+
     return this.send(...rbfInput)
 
     // replace-by-fee helpers:
@@ -393,15 +428,14 @@ module.exports = class TestNode {
   }
 
   // estimate the size of a transaction and return the fee for a given rate
-  async calculateFeeByRate (inputs, outputs, changeAddress, feeRate) {
+  async calculateTxSize (inputs, outputs, changeAddress, feeRate) {
     const weightTestInput = rpcFormat(inputs, outputs, changeAddress, 0.0005)
     const weightTestRaw = await this.client.createRawTransaction(...weightTestInput)
     const weightTestSigned = await this.client.signRawTransactionWithWallet(weightTestRaw)
     const weightTestTx = await this.client.decodeRawTransaction(weightTestSigned.hex)
 
     const virtualSize = weightTestTx.weight / 4
-
-    return virtualSize * feeRate
+    return virtualSize
   }
 }
 
@@ -443,7 +477,7 @@ function rpcFormat (inputs, outputs, changeAddress, fees = 0.0004) {
   } else {
     if (currentFee < fees) throw new Error('not enough funds to cover fees')
   }
-
+  
   const rpcInputs = inputs.map(input => {
     return {
       txid: input.txid,
